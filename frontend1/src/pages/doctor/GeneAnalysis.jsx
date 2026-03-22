@@ -923,9 +923,10 @@ export default function GeneAnalysis() {
   if (isNonWES) {
     try {
       const res = await API.post(`/gene/calculate/${selectedCase}`, {
-        gene:       "NOT_APPLICABLE",
-        gestation:  20,
-        selections: {}
+        gene:           geneData?.report_type || "CLINICAL",
+        gestation:      20,
+        extracted_data: geneData?.extracted || {},
+        checklist:      checklist
       });
       setPp4Result(res.data);
       setPp4Calculated(true);
@@ -1458,15 +1459,19 @@ export default function GeneAnalysis() {
 
                     <div className="g-chk-footer">
                       {isNonWES ? (
-                        /* ✅ Non-WES: show info instead of PP4 button */
-                        <div className="g-pp4-na">
-                          <div className="g-pp4-na-title">ℹ️ PP4 Scoring Not Applicable</div>
-                          <div className="g-pp4-na-sub">
-                            PP4 calculation is only available for Whole Exome Sequencing (WES) reports
-                            with a detected gene variant. The clinical checklist above contains
-                            recommended actions based on the {geneData?.report_type} findings.
+                        /* ✅ Non-WES: show Calculate Clinical Risk Score button */
+                        <>
+                          <div className="g-chk-hint">
+                            Clinical risk scoring based on extracted findings from {geneData?.report_type} report.
                           </div>
-                        </div>
+                          <button className="g-btn-primary" style={{ width:"100%" }}
+                            onClick={handleCalculate} disabled={pp4Calculated}>
+                            {pp4Calculated
+                              ? <><CheckCircle size={16}/> Risk Score Calculated Successfully</>
+                              : <><TrendingUp size={16}/> Calculate Clinical Risk Score</>
+                            }
+                          </button>
+                        </>
                       ) : (
                         <>
                           <div className="g-chk-hint">

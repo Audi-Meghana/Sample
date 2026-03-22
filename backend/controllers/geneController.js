@@ -213,7 +213,7 @@ exports.loadChecklist = async (req, res) => {
 exports.calculatePP4 = async (req, res) => {
   try {
     const { caseId } = req.params;
-    const { gene, gestation, selections } = req.body;
+    const { gene, gestation, selections, extracted_data } = req.body;
 
     const caseData = await Case.findById(caseId);
     if (!caseData) {
@@ -227,12 +227,20 @@ exports.calculatePP4 = async (req, res) => {
     if (
       gene === "NOT_APPLICABLE" ||
       gene === "UNKNOWN"        ||
+      gene === "CMA"           ||
+      gene === "SCAN"          ||
+      gene === "SERUM"         ||
       reportType !== "WES"
     ) {
+      // Use extracted_data from request if provided, otherwise from case
+      const dataToUse = extracted_data || caseData.extractedData || {};
+      
+      console.log(`[calculatePP4] Non-WES path: reportType=${reportType}, extracted_data keys:`, Object.keys(dataToUse));
+      
       // Call FastAPI clinical risk score endpoint
       const riskResult = await fastapiService.calculateClinicalRiskScore({
         report_type:   reportType,
-        extracted_data: caseData.extractedData || {}
+        extracted_data: dataToUse
       });
 
       // Save to DB
