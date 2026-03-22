@@ -176,45 +176,64 @@ def calculate_cma_score(extracted: dict) -> dict:
     aneuploidy    = extracted.get("aneuploidy", {}) or {}
     cardiac       = extracted.get("cardiac_findings", []) or []
     
-    logger.info(f"[CMA] Parsed fields: cnv={cnv_result}, consanguinity={consanguinity}, microdel={microdeletions}, roh={roh}")
+    logger.info(f"[CMA] Parsed fields: cnv_result='{cnv_result}', consanguinity='{consanguinity}', microdeletions='{microdeletions}', roh='{roh}', cardiac={cardiac}, aneuploidy={aneuploidy}")
 
     # CNV Abnormal
+    logger.info(f"[CMA] Checking CNV: 'abnormal' in '{cnv_result}' = {'abnormal' in cnv_result}")
     if "abnormal" in cnv_result:
         raw_score += CMA_WEIGHTS["cnv_abnormal"]
         factors.append("CNV Abnormal detected (+4.0)")
+        logger.info(f"[CMA] ✓ CNV abnormal scored +4.0")
 
     # Trisomy
+    logger.info(f"[CMA] Checking aneuploidy: {aneuploidy}")
     for k, v in aneuploidy.items():
         if str(v).lower() == "positive":
             raw_score += CMA_WEIGHTS["trisomy"]
             factors.append(f"Aneuploidy positive: {k} (+4.0)")
+            logger.info(f"[CMA] ✓ Aneuploidy scored +4.0 for {k}")
 
     # Consanguinity
+    logger.info(f"[CMA] Checking consanguinity: 'yes' in '{consanguinity}' = {'yes' in consanguinity}")
     if "yes" in consanguinity:
         raw_score += CMA_WEIGHTS["consanguinity"]
         factors.append("Consanguineous marriage (+2.0)")
+        logger.info(f"[CMA] ✓ Consanguinity scored +2.0")
 
     # Cardiac findings
+    logger.info(f"[CMA] Checking cardiac: cardiac={cardiac}, len={len(cardiac) if cardiac else 0}")
     if cardiac and len(cardiac) > 0:
         cardiac_str = str(cardiac).lower()
+        logger.info(f"[CMA] Cardiac string: '{cardiac_str}', checking if NOT in {('none', 'null', '[]', '')}")
         if cardiac_str not in ("none", "null", "[]", ""):
             raw_score += CMA_WEIGHTS["cardiac_finding"]
             factors.append(f"Cardiac findings detected (+3.0)")
+            logger.info(f"[CMA] ✓ Cardiac scored +3.0")
+        else:
+            logger.info(f"[CMA] ✗ Cardiac excluded (empty or null)")
+    else:
+        logger.info(f"[CMA] ✗ Cardiac empty or None")
 
     # Microdeletions
+    logger.info(f"[CMA] Checking microdeletions: '{microdeletions}', NOT in ('negative', '', 'null', 'none') = {'negative' not in microdeletions and microdeletions not in ('', 'null', 'none')}")
     if "negative" not in microdeletions and microdeletions not in ("", "null", "none"):
         raw_score += CMA_WEIGHTS["microdeletion"]
         factors.append("Microdeletion detected (+3.0)")
+        logger.info(f"[CMA] ✓ Microdeletion scored +3.0")
 
     # ROH
+    logger.info(f"[CMA] Checking ROH: '{roh}', NOT in {('none', 'null', '', 'no significant')} = {roh not in ('none', 'null', '', 'no significant')}")
     if roh not in ("none", "null", "", "no significant"):
         raw_score += CMA_WEIGHTS["roh_detected"]
         factors.append("Regions of Homozygosity detected (+2.0)")
+        logger.info(f"[CMA] ✓ ROH scored +2.0")
+    else:
+        logger.info(f"[CMA] ✗ ROH excluded (none/null/empty)")
 
     final_score = _clamp_score(raw_score)
     risk_info   = _get_risk_level(final_score)
-
-    return {
+    
+    logger.info(f"[CMA] Final calculation: raw_score={raw_score}, final_score={final_score}, risk_level={risk_info['risk_level']}")
         "score_type":    "Clinical Risk Score (CMA)",
         "report_type":   "CMA",
         "raw_score":     round(raw_score, 2),
@@ -444,50 +463,59 @@ def calculate_clinical_risk_score(report_type: str, extracted: dict) -> dict:
     Returns PP4-compatible structure.
     """
     logger.info(f"[ROUTER] Calculating clinical risk score for {report_type}")
+    logger.info(f"[ROUTER] Extracted data: {extracted}")
     logger.info(f"[ROUTER] Extracted data keys: {list(extracted.keys())}")
     
     # Try LLM-based scoring first
     from app.engines.llm_risk_scorer import score_with_llm
     
-    llm_result = score_with_llm(report_type, extracted)
-    if llm_result:
-        logger.info(f"[ROUTER] LLM scoring succeeded: {llm_result['score']}")
-        
-        # Format LLM result into PP4-compatible structure
-        risk_info = {
-            "risk_level": llm_result["risk_level"],
-            "risk_color": "green" if "Low" in llm_result["risk_level"] else ("amber" if "Moderate" in llm_result["risk_level"] else "red"),
-            "doctor_action": f"Risk Score: {llm_result['score']}/10. Reasoning: {llm_result['reasoning']}",
-            "patient_action": "Please consult your doctor for detailed interpretation."
-        }
-        
-        final_score = _clamp_score(llm_result["score"])
-        return {
-            "score_type":    f"Clinical Risk Score ({report_type})",
-            "report_type":   report_type,
-            "raw_score":     llm_result["score"],
-            "final_score":   final_score,
-            "multiplier":    1.0,
-            "max_score":     MAX_SCORE,
-            "state":         f"{report_type}_{risk_info['risk_level'].replace(' ', '_').upper()}",
-            "risk_level":    risk_info["risk_level"],
-            "risk_color":    risk_info["risk_color"],
-            "scoring_factors": llm_result["factors"],
-            "doctor_summary": f"Clinical Risk Score ({report_type}): {final_score}/10\nRisk Category: {risk_info['risk_level']}\n\nAnalysis:\n{llm_result['reasoning']}",
-            "patient_summary": f"Based on clinical findings, your risk assessment is {risk_info['risk_level']}. Please discuss with your healthcare provider."
-        }
+    try:
+        llm_result = score_with_llm(report_type, extracted)
+        if llm_result:
+            logger.info(f"[ROUTER] ✓ LLM scoring succeeded: score={llm_result['score']}, risk={llm_result['risk_level']}")
+            
+            # Format LLM result into PP4-compatible structure
+            risk_info = {
+                "risk_level": llm_result["risk_level"],
+                "risk_color": "green" if "Low" in llm_result["risk_level"] else ("amber" if "Moderate" in llm_result["risk_level"] else "red"),
+                "doctor_action": f"Risk Score: {llm_result['score']}/10. Reasoning: {llm_result['reasoning']}",
+                "patient_action": "Please consult your doctor for detailed interpretation."
+            }
+            
+            final_score = _clamp_score(llm_result["score"])
+            return {
+                "score_type":    f"Clinical Risk Score ({report_type})",
+                "report_type":   report_type,
+                "raw_score":     llm_result["score"],
+                "final_score":   final_score,
+                "multiplier":    1.0,
+                "max_score":     MAX_SCORE,
+                "state":         f"{report_type}_{risk_info['risk_level'].replace(' ', '_').upper()}",
+                "risk_level":    risk_info["risk_level"],
+                "risk_color":    risk_info["risk_color"],
+                "scoring_factors": llm_result["factors"],
+                "doctor_summary": f"Clinical Risk Score ({report_type}): {final_score}/10\nRisk Category: {risk_info['risk_level']}\n\nAnalysis:\n{llm_result['reasoning']}",
+                "patient_summary": f"Based on clinical findings, your risk assessment is {risk_info['risk_level']}. Please discuss with your healthcare provider."
+            }
+        else:
+            logger.info(f"[ROUTER] LLM returned None - will use rule engine fallback")
+    except Exception as e:
+        logger.warning(f"[ROUTER] LLM scoring exception: {e} - falling back to rule engine")
     
     # Fallback to rule engine
-    logger.info(f"[ROUTER] LLM failed or unavailable, using rule engine fallback")
+    logger.info(f"[ROUTER] Using rule engine for {report_type}")
 
     if report_type == "CMA":
+        logger.info(f"[ROUTER] Calling calculate_cma_score")
         return calculate_cma_score(extracted)
     elif report_type == "SCAN":
+        logger.info(f"[ROUTER] Calling calculate_scan_score")
         return calculate_scan_score(extracted)
     elif report_type == "SERUM":
+        logger.info(f"[ROUTER] Calling calculate_serum_score")
         return calculate_serum_score(extracted)
     else:
-        logger.warning(f"[ROUTER] Unknown report type: {report_type}")
+        logger.warning(f"[ROUTER] ✗ Unknown report type: {report_type}")
         return {
             "score_type":  "Unknown",
             "report_type": report_type,

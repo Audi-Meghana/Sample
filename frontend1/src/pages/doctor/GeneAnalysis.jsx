@@ -960,7 +960,7 @@ export default function GeneAnalysis() {
         clinicalFindings.cnv_result = (checklist.cnv_result || "").toLowerCase();
         clinicalFindings.consanguinity = checklist.consanguinity === "Yes" ? "yes" : "no";
         clinicalFindings.microdeletions = checklist.microdeletions === "Present" ? "detected" : "none";
-        clinicalFindings.roh = checklist.roh === "Detected" ? "yes" : "no";
+        clinicalFindings.roh = checklist.roh === "Detected" ? "detected" : "none";
         clinicalFindings.cardiac_findings = checklist.cardiac_findings === "Present" ? ["cardiac finding"] : [];
       } else if (reportType === "SCAN") {
         clinicalFindings.anomalies = checklist.anomalies === "Present" ? ["anomaly"] : [];

@@ -234,17 +234,17 @@ exports.calculatePP4 = async (req, res) => {
     ) {
       // Use extracted_data from request if provided, otherwise from case
       const dataToUse = extracted_data || caseData.extractedData || {};
+      // Use gene parameter for report type (CMA/SCAN/SERUM) if provided
+      const scoreReportType = gene || reportType;
       
-      console.log(`[calculatePP4] Non-WES path: reportType=${reportType}`);
-      console.log(`[calculatePP4] extracted_data keys from request:`, Object.keys(extracted_data || {}));
-      console.log(`[calculatePP4] caseData.extractedData keys:`, Object.keys(caseData.extractedData || {}));
-      console.log(`[calculatePP4] dataToUse keys:`, Object.keys(dataToUse));
-      console.log(`[calculatePP4] Full dataToUse:`, dataToUse);
+      console.log(`[calculatePP4] Non-WES path: gene=${gene}, reportType=${reportType}, scoreReportType=${scoreReportType}`);
+      console.log(`[calculatePP4] extracted_data from request:`, extracted_data);
+      console.log(`[calculatePP4] dataToUse:`, dataToUse);
       
       // Call FastAPI clinical risk score endpoint
       try {
         const riskResult = await fastapiService.calculateClinicalRiskScore({
-          report_type:   reportType,
+          report_type:   scoreReportType,
           extracted_data: dataToUse
         });
         
