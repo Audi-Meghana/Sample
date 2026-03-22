@@ -1583,6 +1583,67 @@ export default function GeneAnalysis() {
                   </div>
                 )}
 
+                {/* ✅ Clinical Risk Score Results — Non-WES */}
+                {pp4Calculated && isNonWES && (
+                  <div className="g-card" style={{ animation:"g-pop .4s ease" }}>
+                    <div className="g-card-head">
+                      <div className="g-card-ico"><BarChart2 size={16}/></div>
+                      <div>
+                        <div className="g-card-title">Step 4 — Clinical Risk Score</div>
+                        <div className="g-card-sub">Clinical risk assessment based on {geneData?.report_type} findings</div>
+                      </div>
+                      <CheckCircle size={18} color="var(--green)" style={{ marginLeft:"auto" }}/>
+                    </div>
+
+                    <div className="g-results-grid">
+                      <div className="g-result-box">
+                        <div className="g-result-val">{pp4Result?.pp4_result?.raw_score??"-"}</div>
+                        <div className="g-result-lbl">Raw Score</div>
+                      </div>
+                      <div className="g-result-box">
+                        <div className="g-result-val">×{pp4Result?.pp4_result?.multiplier??1}</div>
+                        <div className="g-result-lbl">Multiplier</div>
+                      </div>
+                      <div className="g-result-box highlight">
+                        <div className="g-result-val big">{animatedFinal}</div>
+                        <div className="g-result-lbl">Final Risk Score</div>
+                      </div>
+                    </div>
+
+                    <div className="g-score-bar-wrap">
+                      <div className="g-score-bar-label">
+                        <span>0 — Low</span>
+                        <span>5 — Moderate</span>
+                        <span>10 — High</span>
+                      </div>
+                      <div className="g-score-bar-bg">
+                        <div className="g-score-bar-fill" style={{ width:`${scoreBarWidth}%` }}/>
+                      </div>
+                    </div>
+
+                    <div className="g-badges">
+                      <span className={`g-badge ${getBadgeClass("state",pp4Result?.pp4_result?.score_type)}`}>
+                        <Activity size={12}/>
+                        {pp4Result?.pp4_result?.score_type?.replace(/_/g," ")||"Clinical Score"}
+                      </span>
+                      <span className={`g-badge ${getBadgeClass("risk",pp4Result?.summaries?.risk_level)}`}>
+                        {getRiskIcon(pp4Result?.summaries?.risk_level)}
+                        {pp4Result?.summaries?.risk_level||"-"}
+                      </span>
+                    </div>
+
+                    <div className="g-summary-box">
+                      <div className="g-summary-head">
+                        <Heart size={14} color="var(--teal-d)"/>
+                        <div className="g-summary-title">Clinical Summary</div>
+                      </div>
+                      <div className="g-summary-text">
+                        {pp4Result?.summaries?.doctor_summary||"No summary available."}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* ✅ Non-WES Export Section */}
                 {isNonWES && (
                   <div className="g-card" style={{ animation:"g-pop .4s ease" }}>
