@@ -440,12 +440,45 @@ def calculate_serum_score(extracted: dict) -> dict:
 
 def calculate_clinical_risk_score(report_type: str, extracted: dict) -> dict:
     """
-    Main entry point — routes to correct scorer based on report type.
+    Main entry point — tries LLM first, falls back to rule engine.
     Returns PP4-compatible structure.
     """
     logger.info(f"[ROUTER] Calculating clinical risk score for {report_type}")
     logger.info(f"[ROUTER] Extracted data keys: {list(extracted.keys())}")
-    logger.info(f"[ROUTER] Full extracted: {extracted}")
+    
+    # Try LLM-based scoring first
+    from app.engines.llm_risk_scorer import score_with_llm
+    
+    llm_result = score_with_llm(report_type, extracted)
+    if llm_result:
+        logger.info(f"[ROUTER] LLM scoring succeeded: {llm_result['score']}")
+        
+        # Format LLM result into PP4-compatible structure
+        risk_info = {
+            "risk_level": llm_result["risk_level"],
+            "risk_color": "green" if "Low" in llm_result["risk_level"] else ("amber" if "Moderate" in llm_result["risk_level"] else "red"),
+            "doctor_action": f"Risk Score: {llm_result['score']}/10. Reasoning: {llm_result['reasoning']}",
+            "patient_action": "Please consult your doctor for detailed interpretation."
+        }
+        
+        final_score = _clamp_score(llm_result["score"])
+        return {
+            "score_type":    f"Clinical Risk Score ({report_type})",
+            "report_type":   report_type,
+            "raw_score":     llm_result["score"],
+            "final_score":   final_score,
+            "multiplier":    1.0,
+            "max_score":     MAX_SCORE,
+            "state":         f"{report_type}_{risk_info['risk_level'].replace(' ', '_').upper()}",
+            "risk_level":    risk_info["risk_level"],
+            "risk_color":    risk_info["risk_color"],
+            "scoring_factors": llm_result["factors"],
+            "doctor_summary": f"Clinical Risk Score ({report_type}): {final_score}/10\nRisk Category: {risk_info['risk_level']}\n\nAnalysis:\n{llm_result['reasoning']}",
+            "patient_summary": f"Based on clinical findings, your risk assessment is {risk_info['risk_level']}. Please discuss with your healthcare provider."
+        }
+    
+    # Fallback to rule engine
+    logger.info(f"[ROUTER] LLM failed or unavailable, using rule engine fallback")
 
     if report_type == "CMA":
         return calculate_cma_score(extracted)

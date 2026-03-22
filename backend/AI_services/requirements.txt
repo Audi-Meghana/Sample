@@ -16,6 +16,7 @@ sentence-transformers
 scikit-learn
 numpy
 torch
+groq
 
 # Audio / Video
 openai-whisper
