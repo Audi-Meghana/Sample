@@ -7,17 +7,23 @@ with intelligent reasoning. Falls back to rule engine if LLM unavailable.
 import json
 import logging
 import os
-from groq import Groq
 
 logger = logging.getLogger(__name__)
 
-# Initialize Groq client
+# Initialize Groq client (optional - will fall back to rule engine if unavailable)
+client = None
 try:
+    from groq import Groq
     GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-    client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+    if GROQ_API_KEY:
+        client = Groq(api_key=GROQ_API_KEY)
+        logger.info("[LLM] Groq client initialized successfully")
+    else:
+        logger.info("[LLM] GROQ_API_KEY not set - will use rule engine")
+except ImportError:
+    logger.warning("[LLM] groq package not installed. Run: pip install groq")
 except Exception as e:
-    logger.warning(f"Groq client init failed: {e}")
-    client = None
+    logger.warning(f"[LLM] Groq init failed: {e} - will use rule engine fallback")
 
 
 def _build_prompt(report_type: str, extracted: dict) -> str:
