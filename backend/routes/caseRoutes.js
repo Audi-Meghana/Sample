@@ -18,7 +18,7 @@ router.put("/:caseId/status", auth, caseController.updateCaseStatus);
 // ================= UPDATE SUMMARY =================
 router.put("/:caseId/summary", auth, caseController.updateCaseSummary);
 
-
+router.put("/:caseId", auth, caseController.updateCase);
 // ================= DELETE CASE =================
 router.delete("/:caseId", auth, caseController.deleteCase);
 

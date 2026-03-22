@@ -1,49 +1,72 @@
-import fitz  # PyMuPDF
+import fitz          # PyMuPDF
 import pdfplumber
-import pytesseract
-import tempfile
-import os
-from pdf2image import convert_from_path
-import pytesseract
+import io
+import logging
 
-# Set Tesseract path
-# pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+logger = logging.getLogger(__name__)
 
 
-def extract_text(uploaded_file):
+def extract_text(uploaded_file) -> str:
+    """
+    Extract text from PDF using bytes-based approach.
+    No temp files, no Poppler needed.
+    """
 
-    # Step 1 — Save to temporary file
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-        tmp.write(uploaded_file.read())
-        temp_path = tmp.name
+    # ── Read bytes first ──────────────────────────────
+    try:
+        if hasattr(uploaded_file, "read"):
+            file_bytes = uploaded_file.read()
+        elif isinstance(uploaded_file, (bytes, bytearray)):
+            file_bytes = bytes(uploaded_file)
+        else:
+            file_bytes = bytes(uploaded_file.read())
+    except Exception as e:
+        logger.error(f"❌ Failed to read file bytes: {e}")
+        return ""
 
+    if not file_bytes or len(file_bytes) < 100:
+        logger.error(f"❌ File too small: {len(file_bytes) if file_bytes else 0} bytes")
+        return ""
+
+    logger.info(f"✅ File bytes received: {len(file_bytes)}")
     text = ""
 
-    # Step 2 — Try PyMuPDF
+    # ── Step 1: PyMuPDF from bytes (no temp file needed) ──
     try:
-        doc = fitz.open(temp_path)
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
         for page in doc:
             text += page.get_text()
         doc.close()
-    except:
-        pass
+        if text.strip():
+            logger.info(f"✅ PyMuPDF extracted: {len(text)} chars")
+            return text.strip()
+    except Exception as e:
+        logger.warning(f"PyMuPDF stream failed: {e}")
 
-    # Step 3 — If empty, try pdfplumber
-    if not text.strip():
-        try:
-            with pdfplumber.open(temp_path) as pdf:
-                for page in pdf.pages:
-                    text += page.extract_text() or ""
-        except:
-            pass
+    # ── Step 2: pdfplumber from bytes ──────────────────
+    try:
+        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+            for page in pdf.pages:
+                text += page.extract_text() or ""
+        if text.strip():
+            logger.info(f"✅ pdfplumber extracted: {len(text)} chars")
+            return text.strip()
+    except Exception as e:
+        logger.warning(f"pdfplumber failed: {e}")
 
-    # Step 4 — If still empty → OCR
-    if not text.strip():
-        images = convert_from_path(temp_path)
-        for img in images:
-            text += pytesseract.image_to_string(img)
+    # ── Step 3: PyMuPDF blocks from bytes ──────────────
+    try:
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        for page in doc:
+            for block in page.get_text("blocks"):
+                if block[6] == 0:  # text block only
+                    text += block[4] + "\n"
+        doc.close()
+        if text.strip():
+            logger.info(f"✅ PyMuPDF blocks extracted: {len(text)} chars")
+            return text.strip()
+    except Exception as e:
+        logger.warning(f"PyMuPDF blocks failed: {e}")
 
-    # Cleanup
-    os.remove(temp_path)
-
-    return text
+    logger.error("❌ All extraction methods failed — PDF may be corrupted or image-only")
+    return ""

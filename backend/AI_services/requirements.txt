@@ -23,3 +23,8 @@ ffmpeg-python
 moviepy
 easyocr
 opencv-python
+
+# Document Processing
+python-docx
+openpyxl
+striprtf

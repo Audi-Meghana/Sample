@@ -19,21 +19,45 @@ const storage = multer.diskStorage({
 const fileFilter = (req, file, cb) => {
 
   const allowedTypes = [
+    // PDF
     "application/pdf",
+    
+    // Word Documents
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    
+    // Text Files
+    "text/plain",
+    "text/csv",
+    "application/json",
+    
+    // Audio Files
     "audio/mpeg",
     "audio/wav",
     "audio/x-wav",
     "audio/mp4",
+    "audio/webm",
+    "audio/ogg",
+    
+    // Video Files
     "video/mp4",
     "video/quicktime",
     "video/x-msvideo",
-    "audio/webm", 
+    "video/webm",
+    
+    // Excel/Spreadsheets
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    
+    // RTF Documents
+    "application/rtf",
+    "text/rtf"
   ];
 
   if (allowedTypes.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error("Unsupported file format"), false);
+    cb(new Error(`Unsupported file format: ${file.mimetype}`), false);
   }
 };
 

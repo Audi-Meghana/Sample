@@ -211,3 +211,47 @@ exports.deleteCase = async (req, res) => {
 
 
 
+// ================== UPDATE CASE ==================
+exports.updateCase = async (req, res) => {
+  try {
+    const { patientName, gestationalAge, consanguinity, modeOfConception, status } = req.body;
+
+    // ===== Name Validation =====
+    if (patientName && !/^[A-Za-z\s]+$/.test(patientName)) {
+      return res.status(400).json({
+        message: "Patient name must contain only letters"
+      });
+    }
+
+    // ===== Gestational Age Validation =====
+    if (gestationalAge && gestationalAge > 42) {
+      return res.status(400).json({
+        message: "Gestational age must be below or equal to 42 weeks"
+      });
+    }
+
+    const updatedCase = await Case.findOneAndUpdate(
+      { _id: req.params.caseId, doctorId: req.user.id },
+      { patientName, gestationalAge, consanguinity, modeOfConception, status },
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedCase) {
+      return res.status(404).json({ message: "Case not found" });
+    }
+
+    await History.create({
+      doctorId: req.user.id,
+      caseId: updatedCase._id,
+      caseNumber: updatedCase.patientId,
+      action: "UPDATED",
+      details: `Case updated for patient ${updatedCase.patientName}`
+    });
+
+    res.status(200).json(updatedCase);
+
+  } catch (error) {
+    console.log("UPDATE CASE ERROR:", error);
+    res.status(500).json({ message: error.message });
+  }
+};

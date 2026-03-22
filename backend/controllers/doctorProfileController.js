@@ -1,85 +1,116 @@
 const DoctorProfile = require("../models/doctorProfileModel");
 
-
-// Create Profile
 exports.createProfile = async (req, res) => {
   try {
-    const profileData = {
-      ...req.body,
-      profileImage: req.file ? req.file.filename : null
-    };
+    const profileData = { ...req.body };
+
+    if (req.file) profileData.profileImage = req.file.filename;
+
+    
+    if (typeof profileData.availability === "string") {
+      try { profileData.availability = JSON.parse(profileData.availability); }
+      catch { profileData.availability = []; }
+    }
+
+    if (profileData.consultFee !== undefined && profileData.consultFee !== "") {
+      profileData.consultFee = Number(profileData.consultFee);
+    }
 
     const profile = await DoctorProfile.create(profileData);
-
     res.status(201).json(profile);
   } catch (error) {
+    console.error("CREATE PROFILE ERROR:", error);
     res.status(400).json({ message: error.message });
   }
 };
 
-
-
-// Get Profile by Doctor ID
 exports.getProfile = async (req, res) => {
   try {
-    const profile = await DoctorProfile.findOne({
-      doctorId: req.params.doctorId
-    }).populate("doctorId", "name email role");
+    const profile = await DoctorProfile
+      .findOne({ doctorId: req.params.doctorId })
+      .populate("doctorId", "name email role");
 
     if (!profile) {
-      // 🔥 Instead of 404, return empty profile structure
       return res.status(200).json({
-        fullName: "",
-        specialty: "",
-        phone: "",
-        institution: "",
-        profileImage: null,
-        doctorId: {
-          email: ""
-        }
+        fullName:      "",
+        specialty:     "",
+        phone:         "",
+        institution:   "",
+        qualification: "",
+        experience:    "",
+        licenseNo:     "",
+        consultFee:    "",
+        languages:     "",
+        city:          "",
+        country:       "",
+        website:       "",
+        bio:           "",
+        availability:  [],
+        profileImage:  null,
+        doctorId:      { email: "" }
       });
     }
 
     res.json(profile);
-
   } catch (error) {
-    console.log("GET PROFILE ERROR:", error);  // 🔥 log real error
+    console.error("GET PROFILE ERROR:", error);
     res.status(500).json({ message: error.message });
   }
 };
 
-// Update Profile
 exports.updateProfile = async (req, res) => {
   try {
+    console.log("REQ BODY:", req.body);   
+    console.log("REQ FILE:", req.file);   
 
-    const updateData = {
-      fullName: req.body.fullName,
-      specialty: req.body.specialty,
-      phone: req.body.phone,
-      institution: req.body.institution,
-      doctorId: req.params.doctorId
-    };
+    const updateData = {};
 
-    // 🔥 Only set profileImage if file uploaded
+    
+    const textFields = [
+      "fullName", "specialty", "phone", "institution",
+      "qualification", "experience", "licenseNo",
+      "languages", "city", "country", "website", "bio"
+    ];
+
+    textFields.forEach(field => {
+      if (req.body[field] !== undefined) {
+        updateData[field] = req.body[field];
+      }
+    });
+
+   
+    if (req.body.consultFee !== undefined) {
+      updateData.consultFee = req.body.consultFee === "" ? null : Number(req.body.consultFee);
+    }
+
+    
+    if (req.body.availability !== undefined) {
+      try {
+        const parsed = JSON.parse(req.body.availability);
+        updateData.availability = Array.isArray(parsed) ? parsed : [];
+      } catch {
+        updateData.availability = [];
+      }
+    }
+
+    
     if (req.file) {
       updateData.profileImage = req.file.filename;
     }
 
+    console.log("SAVING TO DB:", updateData); 
+
     const updatedProfile = await DoctorProfile.findOneAndUpdate(
       { doctorId: req.params.doctorId },
-      updateData,
-      {
-        new: true,
-        upsert: true,
-        runValidators: true
-      }
-    );
-console.log("FILE:", req.file);
-    res.json(updatedProfile);
-   console.log("FILE:", req.file);
+      { $set: updateData },
+      { new: true, upsert: true, runValidators: false } 
+    ).populate("doctorId", "name email role");
 
+    console.log("SAVED PROFILE:", updatedProfile); 
+
+    res.json(updatedProfile); 
   } catch (error) {
-    console.log(error);
+    console.error("UPDATE PROFILE ERROR:", error);
     res.status(400).json({ message: error.message });
   }
 };

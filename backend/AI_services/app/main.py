@@ -1,11 +1,13 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from pydantic import BaseModel, Field
-from typing import Dict
+from typing import Dict, Any
 from app.engines.clinical_ai_core import ClinicalAICore
 from utils.pdf_extractor import extract_text
 from utils.audio_extractor import extract_audio_text, extract_video_text
+from utils.document_extractor import extract_text_from_document
 import joblib
 from app.engines.ai_service import ClinicalAIService
+from app.engines.clinical_risk_engine import calculate_clinical_risk_score
 
 
 app = FastAPI(title="Prenatal AI Copilot")
@@ -26,20 +28,26 @@ class ChecklistRequest(BaseModel):
 
 
 class SelectionsModel(BaseModel):
-    core: Dict[str, str] = Field(default_factory=dict)
+    core:       Dict[str, str] = Field(default_factory=dict)
     supportive: Dict[str, str] = Field(default_factory=dict)
-    negative: Dict[str, str] = Field(default_factory=dict)
+    negative:   Dict[str, str] = Field(default_factory=dict)
 
 
 class PP4Request(BaseModel):
-    gene: str
-    gestation: int
+    gene:       str
+    gestation:  int
     selections: SelectionsModel
 
 
 class TextInputRequest(BaseModel):
-    text: str
+    text:      str
     gestation: int | None = None
+
+
+# ✅ NEW — Clinical Risk Score Request
+class RiskScoreRequest(BaseModel):
+    report_type:    str
+    extracted_data: Dict[str, Any] = Field(default_factory=dict)
 
 
 # =========================
@@ -51,16 +59,36 @@ async def extract_pdf(
     file: UploadFile = File(...),
     gestation: int | None = None
 ):
-
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Please upload a PDF file.")
 
     text = extract_text(file.file)
 
+    print(f"DEBUG extracted text length: {len(text) if text else 0}")
+    print(f"DEBUG text preview: {text[:200] if text else 'EMPTY'}")
+
     if not text or len(text.strip()) < 20:
         raise HTTPException(status_code=400, detail="PDF is empty or unreadable.")
 
-    return ai.extract_structured(text, gestation, source="pdf")
+    result = ai.extract_structured(text, gestation, source="pdf")
+
+    print(f"DEBUG extract_structured result: {result}")
+
+    if result is None:
+        return {
+            "report_type": "UNKNOWN",
+            "error": "Extraction returned None",
+            "genetic": {
+                "gene":       "UNKNOWN",
+                "variant":    None,
+                "confidence": 0.0,
+                "status":     "error"
+            },
+            "suggested_phenotypes": [],
+            "checklist": []
+        }
+
+    return result
 
 
 # =========================
@@ -72,25 +100,18 @@ async def extract_audio(
     file: UploadFile = File(...),
     gestation: int | None = None
 ):
-    print("==== AUDIO DEBUG ====")
-    print("Filename:", file.filename)
-    print("Content Type:", file.content_type)
-    print("=====================")
     if not (
-    file.content_type.startswith("audio") or file.filename.lower().endswith((".webm", ".mp3", ".wav"))):
+        file.content_type.startswith("audio") or
+        file.filename.lower().endswith((".webm", ".mp3", ".wav"))
+    ):
         raise HTTPException(status_code=400, detail="Unsupported audio format.")
+
     text = extract_audio_text(file)
-    print("========== DEBUG AUDIO ==========")
-    print("Filename:", file.filename)
-    print("Content Type:", file.content_type)
-    print("Transcribed Text:", text)
-    print("Length:", len(text.strip()) if text else 0)
-    print("=================================")
+
     if not text:
         raise HTTPException(status_code=400, detail="Audio transcription returned empty.")
 
     return ai.extract_structured(text, gestation, source="audio")
-
 
 
 # =========================
@@ -102,7 +123,6 @@ async def extract_video(
     file: UploadFile = File(...),
     gestation: int | None = None
 ):
-
     if not file.filename.lower().endswith((".mp4", ".mov", ".avi")):
         raise HTTPException(status_code=400, detail="Unsupported video format.")
 
@@ -114,32 +134,45 @@ async def extract_video(
     return ai.extract_structured(text, gestation, source="video")
 
 
-
 # =========================
 # 4️⃣ Direct Text Input
 # =========================
 
 @app.post("/extract-text")
 async def extract_text_input(request: TextInputRequest):
-
     if len(request.text.strip()) < 20:
         raise HTTPException(status_code=400, detail="Text too short.")
 
     return ai.extract_structured(request.text, request.gestation, source="text")
 
 
-
 # =========================
-# Generate Checklist
+# 5️⃣ Generate Checklist
 # =========================
 
 @app.post("/generate-checklist")
 async def generate_checklist(request: ChecklistRequest):
+
+    # Handle non-WES gracefully
+    if not request.gene or request.gene in (
+        "NOT_APPLICABLE", "UNKNOWN", "QUOTA_EXHAUSTED", ""
+    ):
+        return {
+            "metadata": {},
+            "checklist": {
+                "core_prenatal_findings":  [],
+                "supportive_findings":     [],
+                "fetal_echo_findings":     [],
+                "negative_predictors":     []
+            },
+            "message": "Checklist not applicable for this report type"
+        }
+
     return ai.generate_checklist(request.gene)
 
 
 # =========================
-# Calculate PP4
+# 6️⃣ Calculate PP4 (WES)
 # =========================
 
 @app.post("/calculate-pp4")
@@ -155,5 +188,184 @@ async def calculate_pp4(request: PP4Request):
 
     return {
         "pp4_result": pp4_result,
-        "summaries": summaries
+        "summaries":  summaries
     }
+
+
+# =========================
+# 7️⃣ ✅ NEW — Calculate Clinical Risk Score (CMA/SCAN/SERUM)
+# =========================
+
+@app.post("/calculate-risk-score")
+async def calculate_risk_score(request: RiskScoreRequest):
+    """
+    Calculate Clinical Risk Score for non-WES reports.
+    Returns PP4-compatible structure for frontend consistency.
+    """
+    try:
+        score_result = calculate_clinical_risk_score(
+            report_type=request.report_type,
+            extracted=request.extracted_data
+        )
+
+        # Return in PP4-compatible format
+        return {
+            "pp4_result": {
+                "raw_score":        score_result["raw_score"],
+                "final_score":      score_result["final_score"],
+                "multiplier":       score_result["multiplier"],
+                "state":            score_result["state"],
+                "score_type":       score_result["score_type"],
+                "report_type":      score_result["report_type"],
+                "risk_color":       score_result["risk_color"],
+                "scoring_factors":  score_result["scoring_factors"],
+            },
+            "summaries": {
+                "doctor_summary":  score_result["doctor_summary"],
+                "patient_summary": score_result["patient_summary"],
+                "risk_level":      score_result["risk_level"]
+            }
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Risk score calculation failed: {str(e)}")
+
+
+# =========================
+# 8️⃣ Document Upload (DOCX, TXT, etc.)
+# =========================
+
+@app.post("/extract-document")
+async def extract_document(
+    file: UploadFile = File(...),
+    gestation: int | None = None
+):
+    """
+    Extract text from Word documents (.docx, .doc) and other document formats
+    """
+    try:
+        file_bytes = await file.read()
+        
+        if not file_bytes:
+            raise HTTPException(status_code=400, detail="File is empty.")
+        
+        text = extract_text_from_document(file_bytes, file.filename)
+        
+        if not text or len(text.strip()) < 20:
+            raise HTTPException(status_code=400, detail="Document is empty or unreadable. Please check file format.")
+        
+        print(f"DEBUG extracted document text length: {len(text)}")
+        print(f"DEBUG text preview: {text[:200]}")
+        
+        result = ai.extract_structured(text, gestation, source="document")
+        
+        return result if result else {
+            "report_type": "UNKNOWN",
+            "error": "Extraction returned None",
+            "genetic": {
+                "gene": "UNKNOWN",
+                "variant": None,
+                "confidence": 0.0,
+                "status": "error"
+            },
+            "suggested_phenotypes": [],
+            "checklist": []
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Document extraction failed: {str(e)}")
+
+
+# =========================
+# 9️⃣ Text File Upload (.txt)
+# =========================
+
+@app.post("/extract-text-file")
+async def extract_text_file(
+    file: UploadFile = File(...),
+    gestation: int | None = None
+):
+    """
+    Extract text from plain text files (.txt)
+    """
+    try:
+        file_bytes = await file.read()
+        
+        if not file_bytes:
+            raise HTTPException(status_code=400, detail="File is empty.")
+        
+        try:
+            text = file_bytes.decode('utf-8', errors='replace').strip()
+        except:
+            text = file_bytes.decode('latin-1', errors='replace').strip()
+        
+        if not text or len(text.strip()) < 20:
+            raise HTTPException(status_code=400, detail="Text file is empty or too short.")
+        
+        print(f"DEBUG extracted text length: {len(text)}")
+        
+        result = ai.extract_structured(text, gestation, source="text")
+        
+        return result if result else {
+            "report_type": "UNKNOWN",
+            "genetic": {
+                "gene": "UNKNOWN",
+                "variant": None,
+                "confidence": 0.0,
+                "status": "error"
+            },
+            "suggested_phenotypes": [],
+            "checklist": []
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Text file extraction failed: {str(e)}")
+
+
+# =========================
+# 🔟 Spreadsheet Upload (XLSX, XLS, CSV)
+# =========================
+
+@app.post("/extract-spreadsheet")
+async def extract_spreadsheet(
+    file: UploadFile = File(...),
+    gestation: int | None = None
+):
+    """
+    Extract text from spreadsheet files (.xlsx, .xls, .csv)
+    """
+    try:
+        file_bytes = await file.read()
+        
+        if not file_bytes:
+            raise HTTPException(status_code=400, detail="File is empty.")
+        
+        text = extract_text_from_document(file_bytes, file.filename)
+        
+        if not text or len(text.strip()) < 20:
+            raise HTTPException(status_code=400, detail="Spreadsheet is empty or unreadable.")
+        
+        print(f"DEBUG extracted spreadsheet text length: {len(text)}")
+        
+        result = ai.extract_structured(text, gestation, source="document")
+        
+        return result if result else {
+            "report_type": "UNKNOWN",
+            "genetic": {
+                "gene": "UNKNOWN",
+                "variant": None,
+                "confidence": 0.0,
+                "status": "error"
+            },
+            "suggested_phenotypes": [],
+            "checklist": []
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Spreadsheet extraction failed: {str(e)}")

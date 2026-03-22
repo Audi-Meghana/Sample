@@ -1,200 +1,263 @@
+import logging
+import json
 import re
+import time
+import os
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+logger = logging.getLogger(__name__)
 
 
 class GeneticExtractor:
 
-    # =========================
-    # PDF Extraction (Structured)
-    # =========================
-    def extract_pdf(self, text):
+    def __init__(self, kb_data=None, clinvar_df=None):
+        self._valid_genes = set()
 
-        result = {"gene": "UNKNOWN", "variant": "UNKNOWN"}
+        if kb_data:
+            for key in kb_data.keys():
+                g = str(key).upper().strip()
+                if g:
+                    self._valid_genes.add(g)
 
-        if not text:
-            return result
+        if clinvar_df is not None and "GeneSymbol" in clinvar_df.columns:
+            for symbol in clinvar_df["GeneSymbol"].dropna().unique():
+                for part in str(symbol).split("|"):
+                    g = part.strip().upper()
+                    if g:
+                        self._valid_genes.add(g)
 
-        clean = text.replace("\n", " ")
+        logger.info(f"GeneticExtractor loaded {len(self._valid_genes)} valid genes")
 
-        # ------------------------------
-        # Gene patterns (PDF structured)
-        # ------------------------------
+        # ✅ Pick provider from .env
+        self.provider = os.getenv("LLM_PROVIDER", "groq").lower()
 
-        gene_patterns = [
-            r"\bGene\b\s*[:\-]\s*([A-Za-z0-9\-]+)",
-            r"\bGene\s+Identified\b\s*[:\-]?\s*([A-Za-z0-9\-]+)",
-            r"\bGene\b\s+([A-Za-z0-9\-]+)"
-        ]
+        if self.provider == "gemini":
+            from google import genai
+            api_key = os.getenv("GEMINI_API_KEY")
+            if not api_key:
+                raise ValueError("❌ GEMINI_API_KEY not found in .env")
+            self.gemini_client = genai.Client(api_key=api_key)
+            self.model_name = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 
-        for pattern in gene_patterns:
-            match = re.search(pattern, clean, re.IGNORECASE)
-            if match:
-                result["gene"] = match.group(1).upper()
-                break
+        elif self.provider == "groq":
+            self.groq_api_key = os.getenv("GROQ_API_KEY")
+            if not self.groq_api_key:
+                raise ValueError("❌ GROQ_API_KEY not found in .env")
+            self.model_name = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
-        # ------------------------------
-        # Variant extraction
-        # ------------------------------
+        elif self.provider == "openrouter":
+            self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
+            if not self.openrouter_api_key:
+                raise ValueError("❌ OPENROUTER_API_KEY not found in .env")
+            self.model_name = os.getenv("OPENROUTER_MODEL", "mistralai/mistral-7b-instruct:free")
 
-        variant_match = re.search(
-            r"(c\.\d+[A-Za-z]?>[A-Za-z]?)",
-            clean,
-            re.IGNORECASE
+        else:
+            raise ValueError(f"❌ Unknown LLM_PROVIDER: {self.provider}. Use: gemini, groq, openrouter")
+
+        logger.info(f"✅ GeneticExtractor using provider: {self.provider} | model: {self.model_name}")
+
+    # -------------------------------------------------
+    # JSON parser
+    # -------------------------------------------------
+
+    def _parse_json_safe(self, text):
+        cleaned = re.sub(r"```(?:json)?\s*", "", text).strip()
+        cleaned = cleaned.replace("```", "").strip()
+        return json.loads(cleaned)
+
+    # -------------------------------------------------
+    # Build prompt
+    # -------------------------------------------------
+
+    def _build_prompt(self, text):
+        return f"""
+You are a clinical genomics expert.
+
+From the following prenatal or genetic report extract:
+1. Gene symbol (example: COL1A2, BRCA1, CFTR, COL12A1)
+2. Variant in HGVS format if present (example: c.1234A>T, p.Gly12Asp)
+
+Return ONLY raw JSON with no markdown, no code fences, no explanation:
+
+{{"gene": "GENE_SYMBOL", "variant": "HGVS_VARIANT_OR_NULL"}}
+
+Rules:
+- If no variant exists, return null for variant.
+- If multiple genes found, return the most clinically significant one.
+- Gene must be a real HGNC gene symbol in UPPERCASE.
+- Never return empty string, always return UNKNOWN if not found.
+
+Report text:
+{text[:6000]}
+"""
+
+    # -------------------------------------------------
+    # Groq API call
+    # -------------------------------------------------
+
+    def _call_groq(self, prompt):
+        headers = {
+            "Authorization": f"Bearer {self.groq_api_key}",
+            "Content-Type": "application/json"
+        }
+        body = {
+            "model": self.model_name,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.1,
+            "max_tokens": 200
+        }
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers=headers,
+            json=body,
+            timeout=30
         )
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"].strip()
 
+    # -------------------------------------------------
+    # OpenRouter API call
+    # -------------------------------------------------
+
+    def _call_openrouter(self, prompt):
+        headers = {
+            "Authorization": f"Bearer {self.openrouter_api_key}",
+            "Content-Type": "application/json"
+        }
+        body = {
+            "model": self.model_name,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.1,
+            "max_tokens": 200
+        }
+        response = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers=headers,
+            json=body,
+            timeout=30
+        )
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"].strip()
+
+    # -------------------------------------------------
+    # Gemini API call
+    # -------------------------------------------------
+
+    def _call_gemini(self, prompt):
+        from google.genai import types
+        response = self.gemini_client.models.generate_content(
+            model=self.model_name,
+            contents=prompt,
+            config=types.GenerateContentConfig(temperature=0.1)
+        )
+        return response.text.strip()
+
+    # -------------------------------------------------
+    # Regex fallback
+    # -------------------------------------------------
+
+    def _extract_gene_variant_regex(self, text: str):
+        gene = "UNKNOWN"
+        context_pattern = r'(?:gene|variant in|mutation in|pathogenic variant|locus)[:\s]+([A-Z][A-Z0-9]{1,9})\b'
+        context_match = re.search(context_pattern, text, re.IGNORECASE)
+        if context_match:
+            candidate = context_match.group(1).upper()
+            if not self._valid_genes or candidate in self._valid_genes:
+                gene = candidate
+
+        if gene == "UNKNOWN" and self._valid_genes:
+            for match in re.finditer(r'\b([A-Z][A-Z0-9]{1,9})\b', text):
+                candidate = match.group(1).upper()
+                if candidate in self._valid_genes:
+                    gene = candidate
+                    break
+
+        variant = None
+        variant_match = re.search(r'\b([cgpm]\.[A-Za-z0-9_>*+\-{}[\]()]+)\b', text)
         if variant_match:
-            result["variant"] = variant_match.group(1).upper()
+            variant = variant_match.group(1)
 
-        return result
+        logger.info(f"🔄 Regex fallback — gene: {gene}, variant: {variant}")
+        return gene, variant
 
+    # -------------------------------------------------
+    # Main extraction with retry + fallback
+    # -------------------------------------------------
 
+    def _extract_gene_variant_gemini(self, text):
+        prompt = self._build_prompt(text)
+        max_retries = 3
+        retry_delays = [20, 40, 60]
 
-    # =========================
-    # AUDIO / VIDEO Extraction (Speech Pattern)
-    # =========================
-    # def extract_audio(self, text):
+        for attempt in range(max_retries):
+            try:
+                # Call correct provider
+                if self.provider == "groq":
+                    raw = self._call_groq(prompt)
+                elif self.provider == "openrouter":
+                    raw = self._call_openrouter(prompt)
+                else:
+                    raw = self._call_gemini(prompt)
 
-    #     result = {"gene": "UNKNOWN", "variant": "UNKNOWN"}
+                logger.debug(f"LLM raw response: {raw}")
+                result = self._parse_json_safe(raw)
 
-    #     if not text:
-    #         return result
+                gene = str(result.get("gene", "UNKNOWN")).upper().strip() or "UNKNOWN"
 
-    #     clean = text.replace(",", " ").replace(".", " ")
-    #     clean = re.sub(r"[^A-Za-z0-9\s\.]", " ", clean)
-    #     # identified L1 cam
-    #     gene_match = re.search(
-    #         r"\bidentified\b\s+([A-Za-z0-9\s]+)",
-    #         clean,
-    #         re.IGNORECASE
-    #     )
+                variant = result.get("variant")
+                if variant:
+                    variant = str(variant).strip()
+                    if not re.match(r'^[cgpm]\.', variant):
+                        logger.warning(f"Invalid HGVS format: {variant}")
+                        variant = None
 
-    #     if gene_match:
-    #         tokens = gene_match.group(1).split()
-    #         tokens = tokens[:2]
-    #         gene = "".join(tokens)
-    #         gene = gene.replace(" ", "")
-    #         gene = re.sub(r"[^A-Za-z0-9]", "", gene)
+                logger.info(f"✅ Extracted — gene: {gene}, variant: {variant}")
+                return gene, variant
 
-    #         if len(gene) >= 3:
-    #             result["gene"] = gene.upper()
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON parse failed: {e}")
+                return self._extract_gene_variant_regex(text)
 
-    #     # speech variant: c 1234 greater than G
-    #     variant_match = re.search(
-    #         r"c\s*\.?\s*(\d+)\s*(greater than|>)\s*([A-Za-z])",
-    #         clean,
-    #         re.IGNORECASE
-    #     )
+            except Exception as e:
+                error_str = str(e)
+                if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str or "rate_limit" in error_str.lower():
+                    if attempt < max_retries - 1:
+                        wait_time = retry_delays[attempt]
+                        logger.warning(f"⚠️ Rate limited (attempt {attempt + 1}/{max_retries}). Retrying in {wait_time}s...")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        logger.warning("⚠️ All retries failed — using regex fallback.")
+                        return self._extract_gene_variant_regex(text)
 
-    #     if variant_match:
-    #         result["variant"] = f"C.{variant_match.group(1)}>{variant_match.group(3)}".upper()
+                logger.error(f"LLM extraction failed: {e}")
+                return self._extract_gene_variant_regex(text)
 
-    #     return result
+        return self._extract_gene_variant_regex(text)
 
+    # -------------------------------------------------
+    # Response builder
+    # -------------------------------------------------
 
-    # =========================
-    # Direct Text Extraction
-    # =========================
-# =========================
-# Direct Text Extraction
-# =========================
-
-    def extract_text(self, text):
-
-        result = {"gene": "UNKNOWN", "variant": "UNKNOWN"}
-
-        if not text:
-            return result
-
-        clean = text.upper()
-
-        # -------------------------------------------------
-        # 🔥 NORMALIZATION LAYER (VERY IMPORTANT)
-        # -------------------------------------------------
-
-        # Convert spoken "greater than" to >
-        clean = re.sub(r"\s+GREATER\s+THAN\s+", ">", clean)
-
-        # Merge patterns like "L1 CAM" → "L1CAM"
-        clean = re.sub(
-            r"\b([A-Z]\d)\s+([A-Z]{2,6})\b",
-            r"\1\2",
-            clean
-        )
-
-        # Merge fully spaced genes like "L 1 C A M"
-        clean = re.sub(
-            r"\b(?:[A-Z0-9]\s+){2,}[A-Z0-9]\b",
-            lambda m: m.group(0).replace(" ", ""),
-            clean
-        )
-
-        # Normalize variant like "C 1234 > G" → "C.1234>G"
-        clean = re.sub(
-            r"C\s*\.?\s*(\d+)\s*>\s*([A-Z])",
-            r"C.\1>\2",
-            clean
-        )
-
-        # Remove punctuation noise
-        clean = re.sub(r"[^\w\s\.>]", " ", clean)
-
-        # -------------------------------------------------
-        # 🧬 DYNAMIC GENE DETECTION
-        # -------------------------------------------------
-
-        STOPWORDS = {
-            "REPORT", "GENETIC", "PRENATAL", "VARIANT",
-            "ULTRASOUND", "FINDINGS", "INCLUDE",
-            "IDENTIFIED", "PATIENT", "FETAL",
-            "VENTRICULAR", "MILD"
+    def _build_response(self, gene, variant):
+        is_valid = gene not in ("UNKNOWN", "")
+        return {
+            "gene": gene,
+            "variant": variant,
+            "confidence": 0.95 if is_valid else 0.0,
+            "status": "ok"
         }
 
-        words = re.findall(r"\b[A-Z0-9]{3,15}\b", clean)
+    def extract_text(self, text: str) -> dict:
+        if not text or not text.strip():
+            return {"gene": "UNKNOWN", "variant": None, "confidence": 0.0, "status": "ok"}
+        gene, variant = self._extract_gene_variant_gemini(text)
+        return self._build_response(gene, variant)
 
-        best_candidate = None
-        best_score = 0
-
-        for word in words:
-
-            if word in STOPWORDS:
-                continue
-
-            if word.isdigit():
-                continue
-
-            score = 0
-
-            # Strong gene indicator: contains number (L1CAM, FGFR3)
-            if re.search(r"\d", word):
-                score += 5
-
-            # Alphabet gene length typical (3–6)
-            if word.isalpha() and 3 <= len(word) <= 6:
-                score += 2
-
-            # Penalize long English-like words
-            if len(word) > 10:
-                score -= 1
-
-            if score > best_score:
-                best_score = score
-                best_candidate = word
-
-        if best_candidate:
-            result["gene"] = best_candidate
-
-        # -------------------------------------------------
-        # 🧬 VARIANT DETECTION
-        # -------------------------------------------------
-
-        variant_match = re.search(
-            r"(C\.\d+[A-Z]?>[A-Z]?|P\.[A-Z]+\d+[A-Z]+)",
-            clean
-        )
-
-        if variant_match:
-            result["variant"] = variant_match.group(1).upper()
-
-        print("🧬 FINAL CLEAN TEXT:", clean)
-        print("🧬 FINAL EXTRACTED:", result)
-
-        return result
+    def extract_pdf(self, text: str) -> dict:
+        if not text or not text.strip():
+            return {"gene": "UNKNOWN", "variant": None, "confidence": 0.0, "status": "ok"}
+        gene, variant = self._extract_gene_variant_gemini(text)
+        return self._build_response(gene, variant)

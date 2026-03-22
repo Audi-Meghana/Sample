@@ -13,9 +13,7 @@ class ClinicalAICore:
         self.pp4_engine = PP4Engine()
         self.clinvar_engine = ClinVarEngine()
 
-    # -----------------------------------------
-    # STEP 1: Extract structured JSON
-    # -----------------------------------------
+   
     def extract_structured(self, text, gestation=None, source="text"):
 
         if source == "pdf":
@@ -66,9 +64,7 @@ class ClinicalAICore:
             "suggested_phenotypes": suggested
         }
 
-    # -----------------------------------------
-    # STEP 2: Generate Checklist
-    # -----------------------------------------
+    
     def generate_checklist(self, gene):
 
         visibility = GeneVisibilityModel(gene)
@@ -102,17 +98,13 @@ class ClinicalAICore:
         print("Selections:", selections)
        
         return result
-    # -----------------------------------------
-    # STEP 4: Generate Summaries
-    # -----------------------------------------
+   
     
     def generate_summaries(self, gene, pp4_result):
 
         score = round(pp4_result.get("final_score", 0), 2)
 
-        # -----------------------------
-        # Risk Mapping
-        # -----------------------------
+        
         if score >= 4:
             risk_level = "High Risk"
             doctor_action = (
@@ -155,9 +147,7 @@ class ClinicalAICore:
             f"{doctor_action}"
         )
 
-        # -----------------------------
-        # Patient Summary (Simple Language)
-        # -----------------------------
+        
         patient_summary = (
             f"Your test related to {gene} shows a {risk_level.lower()} "
             f"based on the ultrasound findings.\n\n"
