@@ -922,10 +922,50 @@ export default function GeneAnalysis() {
   // ✅ Non-WES → Clinical Risk Score
   if (isNonWES) {
     try {
+      // Validate that doctor filled in clinical findings
+      const requiredFields = {
+        "CMA": ["cnv_result", "consanguinity", "microdeletions", "roh", "cardiac_findings"],
+        "SCAN": ["anomalies", "nt", "nasal_bone", "doppler", "liquor"],
+        "SERUM": ["nt_result", "nasal_bone", "ductus_venosus", "tricuspid"]
+      };
+      
+      const reportType = geneData?.report_type || "CMA";
+      const required = requiredFields[reportType] || [];
+      
+      for (const field of required) {
+        if (!checklist[field]) {
+          alert(`⚠️ Please answer all clinical findings. Missing: ${field}`);
+          return;
+        }
+      }
+      
+      // Map doctor's selections to risk scorer format
+      const clinicalFindings = {};
+      if (reportType === "CMA") {
+        clinicalFindings.cnv_result = (checklist.cnv_result || "").toLowerCase();
+        clinicalFindings.consanguinity = checklist.consanguinity === "Yes" ? "yes" : "no";
+        clinicalFindings.microdeletions = checklist.microdeletions === "Present" ? "detected" : "none";
+        clinicalFindings.roh = checklist.roh === "Detected" ? "yes" : "no";
+        clinicalFindings.cardiac_findings = checklist.cardiac_findings === "Present" ? ["cardiac finding"] : [];
+      } else if (reportType === "SCAN") {
+        clinicalFindings.anomalies = checklist.anomalies === "Present" ? ["anomaly"] : [];
+        clinicalFindings.nt = checklist.nt === "Abnormal" ? "abnormal" : "normal";
+        clinicalFindings.nasal_bone = checklist.nasal_bone ? checklist.nasal_bone.toLowerCase().replace(" ", "_") : "normal";
+        clinicalFindings.doppler = checklist.doppler === "Abnormal" ? "abnormal" : "normal";
+        clinicalFindings.liquor = checklist.liquor ? checklist.liquor.toLowerCase().replace(" ", "_") : "normal";
+      } else if (reportType === "SERUM") {
+        clinicalFindings.nt_result = checklist.nt_result === "Abnormal" ? "abnormal" : "normal";
+        clinicalFindings.nasal_bone = checklist.nasal_bone ? checklist.nasal_bone.toLowerCase().replace(" ", "_") : "normal";
+        clinicalFindings.ductus_venosus = checklist.ductus_venosus === "Abnormal" ? "abnormal" : "normal";
+        clinicalFindings.tricuspid = checklist.tricuspid === "Present" ? "yes" : "no";
+      }
+      
+      console.log(`[calculatePP4] Non-WES clinical findings:`, clinicalFindings);
+      
       const res = await API.post(`/gene/calculate/${selectedCase}`, {
-        gene:           geneData?.report_type || "CLINICAL",
+        gene:           reportType,
         gestation:      20,
-        extracted_data: geneData?.extracted || {},
+        extracted_data: clinicalFindings,
         checklist:      checklist
       });
       setPp4Result(res.data);
@@ -933,7 +973,7 @@ export default function GeneAnalysis() {
       await API.put(`/cases/${selectedCase}/status`, { status:"Completed" });
     } catch(e) {
       console.error(e);
-      alert("Risk score calculation failed.");
+      alert("Risk score calculation failed: " + (e.response?.data?.message || e.message));
     }
     return;
   }
@@ -1413,6 +1453,229 @@ export default function GeneAnalysis() {
                   </div>
 
                   <div className="g-checklist-body">
+                    {/* ✅ Non-WES: Clinical Findings Assessment */}
+                    {isNonWES && (
+                      <div className="g-cat-wrap">
+                        <div className="g-cat-head">
+                          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                            <span style={{ fontWeight:700, color:"var(--navy)" }}>📋 Clinical Findings Assessment</span>
+                            <span className="g-cat-count">Required for Risk Score</span>
+                          </div>
+                        </div>
+                        <div className="g-cat-body">
+                          {geneData?.report_type === "CMA" && (
+                            <>
+                              <div className="g-chk-row">
+                                <span className="g-chk-label">CNV Result</span>
+                                <div className="g-chk-opts">
+                                  {["Normal","Abnormal","Unknown"].map(opt => (
+                                    <label key={opt} className="g-radio-wrap">
+                                      <input type="radio" name="cnv_result" value={opt}
+                                        checked={checklist.cnv_result===opt}
+                                        onChange={() => setChecklist(prev => ({...prev, cnv_result:opt}))}
+                                      />
+                                      <span className="g-radio-lbl">{opt}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="g-chk-row">
+                                <span className="g-chk-label">Consanguinity</span>
+                                <div className="g-chk-opts">
+                                  {["Yes","No","Unknown"].map(opt => (
+                                    <label key={opt} className="g-radio-wrap">
+                                      <input type="radio" name="consanguinity" value={opt}
+                                        checked={checklist.consanguinity===opt}
+                                        onChange={() => setChecklist(prev => ({...prev, consanguinity:opt}))}
+                                      />
+                                      <span className="g-radio-lbl">{opt}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="g-chk-row">
+                                <span className="g-chk-label">Microdeletions</span>
+                                <div className="g-chk-opts">
+                                  {["Present","Not Present","Unknown"].map(opt => (
+                                    <label key={opt} className="g-radio-wrap">
+                                      <input type="radio" name="microdeletions" value={opt}
+                                        checked={checklist.microdeletions===opt}
+                                        onChange={() => setChecklist(prev => ({...prev, microdeletions:opt}))}
+                                      />
+                                      <span className="g-radio-lbl">{opt}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="g-chk-row">
+                                <span className="g-chk-label">ROH (Regions of Homozygosity)</span>
+                                <div className="g-chk-opts">
+                                  {["Detected","Not Detected","Unknown"].map(opt => (
+                                    <label key={opt} className="g-radio-wrap">
+                                      <input type="radio" name="roh" value={opt}
+                                        checked={checklist.roh===opt}
+                                        onChange={() => setChecklist(prev => ({...prev, roh:opt}))}
+                                      />
+                                      <span className="g-radio-lbl">{opt}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="g-chk-row">
+                                <span className="g-chk-label">Cardiac Findings</span>
+                                <div className="g-chk-opts">
+                                  {["Present","Not Present","Unknown"].map(opt => (
+                                    <label key={opt} className="g-radio-wrap">
+                                      <input type="radio" name="cardiac_findings" value={opt}
+                                        checked={checklist.cardiac_findings===opt}
+                                        onChange={() => setChecklist(prev => ({...prev, cardiac_findings:opt}))}
+                                      />
+                                      <span className="g-radio-lbl">{opt}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                            </>
+                          )}
+                          {geneData?.report_type === "SCAN" && (
+                            <>
+                              <div className="g-chk-row">
+                                <span className="g-chk-label">Anomalies Detected</span>
+                                <div className="g-chk-opts">
+                                  {["Present","Not Present","Unknown"].map(opt => (
+                                    <label key={opt} className="g-radio-wrap">
+                                      <input type="radio" name="anomalies" value={opt}
+                                        checked={checklist.anomalies===opt}
+                                        onChange={() => setChecklist(prev => ({...prev, anomalies:opt}))}
+                                      />
+                                      <span className="g-radio-lbl">{opt}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="g-chk-row">
+                                <span className="g-chk-label">NT Measurement</span>
+                                <div className="g-chk-opts">
+                                  {["Abnormal","Normal","Unknown"].map(opt => (
+                                    <label key={opt} className="g-radio-wrap">
+                                      <input type="radio" name="nt" value={opt}
+                                        checked={checklist.nt===opt}
+                                        onChange={() => setChecklist(prev => ({...prev, nt:opt}))}
+                                      />
+                                      <span className="g-radio-lbl">{opt}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="g-chk-row">
+                                <span className="g-chk-label">Nasal Bone</span>
+                                <div className="g-chk-opts">
+                                  {["Absent","Hypoplastic","Normal","Unknown"].map(opt => (
+                                    <label key={opt} className="g-radio-wrap">
+                                      <input type="radio" name="nasal_bone" value={opt}
+                                        checked={checklist.nasal_bone===opt}
+                                        onChange={() => setChecklist(prev => ({...prev, nasal_bone:opt}))}
+                                      />
+                                      <span className="g-radio-lbl">{opt}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="g-chk-row">
+                                <span className="g-chk-label">Doppler Assessment</span>
+                                <div className="g-chk-opts">
+                                  {["Abnormal","Normal","Unknown"].map(opt => (
+                                    <label key={opt} className="g-radio-wrap">
+                                      <input type="radio" name="doppler" value={opt}
+                                        checked={checklist.doppler===opt}
+                                        onChange={() => setChecklist(prev => ({...prev, doppler:opt}))}
+                                      />
+                                      <span className="g-radio-lbl">{opt}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="g-chk-row">
+                                <span className="g-chk-label">Amniotic Fluid</span>
+                                <div className="g-chk-opts">
+                                  {["Reduced","Increased","Normal","Unknown"].map(opt => (
+                                    <label key={opt} className="g-radio-wrap">
+                                      <input type="radio" name="liquor" value={opt}
+                                        checked={checklist.liquor===opt}
+                                        onChange={() => setChecklist(prev => ({...prev, liquor:opt}))}
+                                      />
+                                      <span className="g-radio-lbl">{opt}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                            </>
+                          )}
+                          {geneData?.report_type === "SERUM" && (
+                            <>
+                              <div className="g-chk-row">
+                                <span className="g-chk-label">NT Result</span>
+                                <div className="g-chk-opts">
+                                  {["Abnormal","Normal","Unknown"].map(opt => (
+                                    <label key={opt} className="g-radio-wrap">
+                                      <input type="radio" name="nt_result" value={opt}
+                                        checked={checklist.nt_result===opt}
+                                        onChange={() => setChecklist(prev => ({...prev, nt_result:opt}))}
+                                      />
+                                      <span className="g-radio-lbl">{opt}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="g-chk-row">
+                                <span className="g-chk-label">Nasal Bone</span>
+                                <div className="g-chk-opts">
+                                  {["Absent","Hypoplastic","Normal","Unknown"].map(opt => (
+                                    <label key={opt} className="g-radio-wrap">
+                                      <input type="radio" name="nasal_bone" value={opt}
+                                        checked={checklist.nasal_bone===opt}
+                                        onChange={() => setChecklist(prev => ({...prev, nasal_bone:opt}))}
+                                      />
+                                      <span className="g-radio-lbl">{opt}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="g-chk-row">
+                                <span className="g-chk-label">Ductus Venosus</span>
+                                <div className="g-chk-opts">
+                                  {["Abnormal","Normal","Unknown"].map(opt => (
+                                    <label key={opt} className="g-radio-wrap">
+                                      <input type="radio" name="ductus_venosus" value={opt}
+                                        checked={checklist.ductus_venosus===opt}
+                                        onChange={() => setChecklist(prev => ({...prev, ductus_venosus:opt}))}
+                                      />
+                                      <span className="g-radio-lbl">{opt}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="g-chk-row">
+                                <span className="g-chk-label">Tricuspid Regurgitation</span>
+                                <div className="g-chk-opts">
+                                  {["Present","Not Present","Unknown"].map(opt => (
+                                    <label key={opt} className="g-radio-wrap">
+                                      <input type="radio" name="tricuspid" value={opt}
+                                        checked={checklist.tricuspid===opt}
+                                        onChange={() => setChecklist(prev => ({...prev, tricuspid:opt}))}
+                                      />
+                                      <span className="g-radio-lbl">{opt}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Original Action Checklist */}
                     {backendChecklist.filter(c=>c.items?.length).map((cat,ci) => (
                       <div key={ci} className="g-cat-wrap">
                         <div className="g-cat-head" onClick={() => setOpenCategory(openCategory===ci?null:ci)}>
