@@ -933,11 +933,26 @@ export default function GeneAnalysis() {
       const required = requiredFields[reportType] || [];
       
       for (const field of required) {
-        if (!checklist[field]) {
-          alert(`⚠️ Please answer all clinical findings. Missing: ${field}`);
-          return;
-        }
-      }
+         if (!checklist[field]) {
+           const fieldNames = {
+             "cnv_result": "CNV Result",
+             "consanguinity": "Consanguinity",
+             "microdeletions": "Microdeletions",
+             "roh": "ROH (Regions of Homozygosity)",
+             "cardiac_findings": "Cardiac Findings",
+             "anomalies": "Anomalies",
+             "nt": "NT Measurement",
+             "nasal_bone": "Nasal Bone",
+             "doppler": "Doppler",
+             "liquor": "Amniotic Fluid",
+             "nt_result": "NT Result",
+             "ductus_venosus": "Ductus Venosus",
+             "tricuspid": "Tricuspid Regurgitation"
+           };
+           alert(`⚠️ MISSING: Please fill in "${fieldNames[field] || field}" in the Clinical Findings section above.`);
+           return;
+         }
+       }
       
       // Map doctor's selections to risk scorer format
       const clinicalFindings = {};
@@ -972,8 +987,9 @@ export default function GeneAnalysis() {
       setPp4Calculated(true);
       await API.put(`/cases/${selectedCase}/status`, { status:"Completed" });
     } catch(e) {
-      console.error(e);
-      alert("Risk score calculation failed: " + (e.response?.data?.message || e.message));
+      console.error("[handleCalculate] Error:", e);
+      const errorMsg = e.response?.data?.message || e.response?.data?.detail || e.message;
+      alert(`❌ Risk score calculation failed:\n\n${errorMsg}`);
     }
     return;
   }

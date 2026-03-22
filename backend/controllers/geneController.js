@@ -242,32 +242,40 @@ exports.calculatePP4 = async (req, res) => {
       console.log(`[calculatePP4] Full dataToUse:`, dataToUse);
       
       // Call FastAPI clinical risk score endpoint
-      const riskResult = await fastapiService.calculateClinicalRiskScore({
-        report_type:   reportType,
-        extracted_data: dataToUse
-      });
+      try {
+        const riskResult = await fastapiService.calculateClinicalRiskScore({
+          report_type:   reportType,
+          extracted_data: dataToUse
+        });
+        
+        // Save to DB
+        await Case.findByIdAndUpdate(caseId, {
+          pp4: {
+            rawScore:    riskResult.pp4_result?.raw_score   || 0,
+            finalScore:  riskResult.pp4_result?.final_score || 0,
+            riskLevel:   riskResult.summaries?.risk_level   || "Unknown",
+            calculatedAt: new Date()
+          },
+          summary: riskResult.summaries?.doctor_summary || "",
+          status:  "Completed"
+        });
 
-      // Save to DB
-      await Case.findByIdAndUpdate(caseId, {
-        pp4: {
-          rawScore:    riskResult.pp4_result?.raw_score   || 0,
-          finalScore:  riskResult.pp4_result?.final_score || 0,
-          riskLevel:   riskResult.summaries?.risk_level   || "Unknown",
-          calculatedAt: new Date()
-        },
-        summary: riskResult.summaries?.doctor_summary || "",
-        status:  "Completed"
-      });
+        await History.create({
+          doctorId,
+          caseId,
+          caseNumber: caseData.patientId,
+          action:     "RISK_SCORE",
+          details:    `${reportType} Clinical Risk Score: ${riskResult.pp4_result?.final_score}, Risk: ${riskResult.summaries?.risk_level}`
+        });
 
-      await History.create({
-        doctorId,
-        caseId,
-        caseNumber: caseData.patientId,
-        action:     "RISK_SCORE",
-        details:    `${reportType} Clinical Risk Score: ${riskResult.pp4_result?.final_score}, Risk: ${riskResult.summaries?.risk_level}`
-      });
-
-      return res.json(riskResult);
+        return res.json(riskResult);
+      } catch (err) {
+        console.error(`[calculatePP4] Risk score calculation error:`, err.message);
+        return res.status(500).json({ 
+          message: `Risk score calculation failed: ${err.message}`,
+          detail: err.message 
+        });
+      }
     }
 
     // ✅ WES — calculate PP4 as before
