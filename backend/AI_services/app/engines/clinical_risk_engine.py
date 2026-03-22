@@ -164,6 +164,8 @@ def calculate_cma_score(extracted: dict) -> dict:
     Calculate Clinical Risk Score for CMA reports.
     Returns PP4-equivalent structure.
     """
+    logger.info(f"[CMA] Extracted data received: {extracted}")
+    
     raw_score = 0.0
     factors   = []
 
@@ -173,6 +175,8 @@ def calculate_cma_score(extracted: dict) -> dict:
     roh           = str(extracted.get("roh", "") or "").lower()
     aneuploidy    = extracted.get("aneuploidy", {}) or {}
     cardiac       = extracted.get("cardiac_findings", []) or []
+    
+    logger.info(f"[CMA] Parsed fields: cnv={cnv_result}, consanguinity={consanguinity}, microdel={microdeletions}, roh={roh}")
 
     # CNV Abnormal
     if "abnormal" in cnv_result:
@@ -439,7 +443,9 @@ def calculate_clinical_risk_score(report_type: str, extracted: dict) -> dict:
     Main entry point — routes to correct scorer based on report type.
     Returns PP4-compatible structure.
     """
-    logger.info(f"Calculating clinical risk score for {report_type}")
+    logger.info(f"[ROUTER] Calculating clinical risk score for {report_type}")
+    logger.info(f"[ROUTER] Extracted data keys: {list(extracted.keys())}")
+    logger.info(f"[ROUTER] Full extracted: {extracted}")
 
     if report_type == "CMA":
         return calculate_cma_score(extracted)
@@ -448,6 +454,7 @@ def calculate_clinical_risk_score(report_type: str, extracted: dict) -> dict:
     elif report_type == "SERUM":
         return calculate_serum_score(extracted)
     else:
+        logger.warning(f"[ROUTER] Unknown report type: {report_type}")
         return {
             "score_type":  "Unknown",
             "report_type": report_type,

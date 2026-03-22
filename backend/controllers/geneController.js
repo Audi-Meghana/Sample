@@ -235,7 +235,11 @@ exports.calculatePP4 = async (req, res) => {
       // Use extracted_data from request if provided, otherwise from case
       const dataToUse = extracted_data || caseData.extractedData || {};
       
-      console.log(`[calculatePP4] Non-WES path: reportType=${reportType}, extracted_data keys:`, Object.keys(dataToUse));
+      console.log(`[calculatePP4] Non-WES path: reportType=${reportType}`);
+      console.log(`[calculatePP4] extracted_data keys from request:`, Object.keys(extracted_data || {}));
+      console.log(`[calculatePP4] caseData.extractedData keys:`, Object.keys(caseData.extractedData || {}));
+      console.log(`[calculatePP4] dataToUse keys:`, Object.keys(dataToUse));
+      console.log(`[calculatePP4] Full dataToUse:`, dataToUse);
       
       // Call FastAPI clinical risk score endpoint
       const riskResult = await fastapiService.calculateClinicalRiskScore({

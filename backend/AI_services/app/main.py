@@ -203,10 +203,16 @@ async def calculate_risk_score(request: RiskScoreRequest):
     Returns PP4-compatible structure for frontend consistency.
     """
     try:
+        print(f"[FastAPI] /calculate-risk-score received: report_type={request.report_type}")
+        print(f"[FastAPI] extracted_data keys: {list(request.extracted_data.keys())}")
+        print(f"[FastAPI] extracted_data: {request.extracted_data}")
+        
         score_result = calculate_clinical_risk_score(
             report_type=request.report_type,
             extracted=request.extracted_data
         )
+        
+        print(f"[FastAPI] Risk score calculated: {score_result['final_score']}")
 
         # Return in PP4-compatible format
         return {
@@ -228,6 +234,7 @@ async def calculate_risk_score(request: RiskScoreRequest):
         }
 
     except Exception as e:
+        print(f"[FastAPI] Error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Risk score calculation failed: {str(e)}")
 
 
