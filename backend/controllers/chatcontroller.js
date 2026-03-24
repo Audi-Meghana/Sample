@@ -11,10 +11,13 @@ const Message = require("../models/messageModel");
 
 exports.handleChat = async (req, res) => {
   try {
-    const { text, gestation, conversationId } = req.body;
+    const { text, gestation, conversationId, voice_transcription } = req.body;
 
     console.log("REQ.FILE:", req.file);
     console.log("REQ.BODY:", req.body);
+    if (voice_transcription) {
+      console.log("[Voice Chat] Using live transcription for analysis:", voice_transcription.substring(0, 50) + "...");
+    }
 
     // 🔥 Validate conversation
     if (!conversationId) {
@@ -25,9 +28,59 @@ exports.handleChat = async (req, res) => {
     }
 
     // =====================================================
+    // 🎤 PRIORITY 1: VOICE TRANSCRIPTION (Web Speech API)
+    // =====================================================
+    // If we have live transcription from Web Speech API, use that for instant analysis
+    if (voice_transcription) {
+      console.log("[Voice Chat] Analyzing voice transcription (fast path - no Whisper needed)");
+      
+      const result = await aiService.extractText(
+        voice_transcription,
+        gestation
+      );
+
+      // Delete uploaded file if it exists (no longer needed)
+      if (req.file) {
+        try {
+          if (fs.existsSync(req.file.path)) {
+            fs.unlinkSync(req.file.path);
+            console.log("[Voice Chat] Deleted audio file (using transcription instead)");
+          }
+        } catch (deleteErr) {
+          console.warn("Could not delete file:", req.file.path, deleteErr.message);
+        }
+      }
+
+      // Save doctor message
+      await Message.create({
+        conversationId,
+        sender: "doctor",
+        text: text || voice_transcription,
+        analysisSource: "voice_transcription"
+      });
+
+      // Save AI response
+      await Message.create({
+        conversationId,
+        sender: "ai",
+        type: "analysis-complete",
+        data: result,
+        text: `Gene detected: ${result?.genetic?.gene || "Unknown"}`
+      });
+
+      return res.status(200).json({
+        success: true,
+        data: result
+      });
+    }
+
+    // =====================================================
     // 🔥 CASE 1: FILE EXISTS (with or without text)
+    // Fallback: If no voice transcription, use audio file (Whisper transcription)
     // =====================================================
     if (req.file) {
+      console.log("[Voice Chat] No live transcription - using audio file with Whisper");
+      
       const result = await aiService.extractFile(
         req.file,
         gestation
@@ -38,7 +91,7 @@ exports.handleChat = async (req, res) => {
         conversationId,
         sender: "doctor",
         text: text || "",
-        analysisSource: "file",
+        analysisSource: "audio_file",
         fileName: req.file.originalname
       });
 

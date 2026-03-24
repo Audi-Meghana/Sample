@@ -7,6 +7,29 @@ class ReportDetector:
     def detect(text: str, source: str = "text") -> str:
         t = " ".join(text.lower().split())
 
+        # ─── STRONG WES SIGNAL: Gene variant notation ─────────────────────
+        # If we see NM_ accessions + HGVS notation, it's definitely WES
+        # This must be checked BEFORE CMA to avoid false positives
+        has_nm_accession = bool(re.search(r'nm_\d{6}', t))
+        has_hgvs_notation = bool(re.search(r'[cp]\.\d+[a-z>]+', t))
+        has_variant_keywords = any(k in t for k in [
+            "variant interpretation",
+            "pathogenic variant",
+            "likely pathogenic",
+            "uncertain significance",
+            "variant classification",
+            "gene variant",
+            "genetic variant",
+        ])
+        
+        # If we have NM accession + HGVS notation OR multiple variant indicators,
+        # it's definitely WES (not CMA which doesn't have gene sequence info)
+        if (has_nm_accession and has_hgvs_notation) or \
+           (has_nm_accession and has_variant_keywords) or \
+           (has_hgvs_notation and has_variant_keywords and sum([has_nm_accession, has_hgvs_notation, has_variant_keywords]) >= 2):
+            print(f"DEBUG ReportDetector: strong WES signal detected (nm={has_nm_accession}, hgvs={has_hgvs_notation}, keywords={has_variant_keywords})")
+            return "WES"
+
         # ─── CMA FIRST (always — very specific keywords) ─────────────────
         if any(k in t for k in [
             "chromosomal microarray",
@@ -38,6 +61,22 @@ class ReportDetector:
             "quad screen",
             "first trimester screening",
             "biochemical markers",
+            "serum screening",
+            "biochemical screening",
+            "serum markers",
+            "maternal serum",
+            "serology",
+            "risk assessment",
+            "aneuploidy risk",
+            "trisomy risk",
+            "prenatal screening",
+            "screening risk",
+            "screen result",
+            "high risk",
+            "low risk",
+            "likelihood ratio",
+            "risk of",
+            "fetal risk",
         ]):
             return "SERUM"
 
@@ -67,6 +106,23 @@ class ReportDetector:
             "allele frequency",
             "sift",
             "polyphen",
+            "heterozygous",
+            "homozygous",
+            "autosomal",
+            "x-linked",
+            "inheritance",
+            "genetic disorder",
+            "omim",
+            "variant classification",
+            "in silico",
+            "maf",
+            "minor allele",
+            "missense",
+            "nonsense",
+            "frameshift",
+            "splice",
+            "damage",
+            "benign",
         ]):
             return "WES"
 
@@ -145,23 +201,53 @@ class ReportDetector:
 
         # ─── Gene heuristic — 2+ gene-like uppercase tokens ──────────────
         # e.g. "L1CAM", "FGFR3" appearing in audio transcript → WES
+        # BUT: must be stricter to avoid matching patient names, hospital names, etc.
         gene_like = re.findall(r'\b[A-Z]{2,8}\d*\b', text)
         non_gene = {
+            # Medical abbreviations
             "NT", "BPD", "FHR", "CRL", "EFW", "MOM", "DNA", "RNA",
             "PCR", "IVF", "IVP", "LMP", "EDD", "OB", "GYN", "US",
             "CT", "MRI", "ECG", "EKG", "NICU", "ICU", "ER", "IV",
             "OK", "NA", "PM", "AM", "ID", "NO", "YES",
             "SCAN", "CMA", "WES", "VUS", "HPO", "ACMG",
             "AND", "THE", "FOR", "WITH", "FROM", "INTO",
+            # Report types
+            "RES", "REPORT", "PDF", "FILE", "FORM",
+            # Common names/words that look like genes
+            "BABU", "MADHAN", "SANDHYA", "VINOTH", "PRIYA", "ARUN",
+            "HOSPITAL", "CLINIC", "CENTER", "CENTRE", "OFFICE", "DEPT",
+            "MEDICAL", "HEALTH", "CARE", "LABS", "INSTITUTE",
+            "PATIENT", "DATE", "TIME", "SCAN", "TEST", "REPORT",
+            "RESULT", "NORMAL", "ABNORMAL", "POSITIVE", "NEGATIVE",
+            "PROCEDURE", "ANALYSIS", "SECTION", "DEPARTMENT",
+            "PHONE", "EMAIL", "ADDRESS", "STREET", "SQUARE",
+            "BLOCK", "LANE", "ROAD", "PLACE", "HOUSE",
+            "MRS", "MR", "MS", "DR", "PROF", "DR",
+            # More exclusions to be safe
+            "OBSTETRIC", "GYNECOLOGY", "MATERNAL", "FETAL",
+            "WEEK", "WEEKS", "MONTH", "MONTHS", "YEAR", "YEARS",
+            "MALE", "FEMALE", "BABY", "INFANT", "CHILD",
         }
-        gene_candidates = [g for g in gene_like if g not in non_gene and len(g) >= 3]
+        
+        # Strict gene filtering:
+        # 1. Must NOT be in the exclusion list
+        # 2. Must be at least 4 chars (most real genes are longer than 3)
+        # 3. Should contain at least one digit (real genes often have numbers)
+        gene_candidates = [
+            g for g in gene_like 
+            if g not in non_gene 
+            and len(g) >= 4 
+            and any(c.isdigit() for c in g)  # Must have at least one digit
+        ]
+        
+        # Only trigger WES if we have 2+ strong gene candidates with digits
         if len(gene_candidates) >= 2:
             print(f"DEBUG ReportDetector: gene heuristic matched {gene_candidates[:5]} → WES")
             return "WES"
 
         # ─── SCAN — checked AFTER all WES checks ─────────────────────────
         # Only reaches here if absolutely no WES indicators found.
-        if any(k in t for k in [
+        scan_keywords = [
             "ultrasound",
             "fetal biometry",
             "fetal heart rate",
@@ -180,15 +266,40 @@ class ReportDetector:
             "ductus venosus",
             "fetal measurements",
             "amniotic fluid",
-        ]):
+            "prenatal ultrasound",
+            "obstetric ultrasound",
+            "obstetric scan",
+            "obstetric biometry",
+            "pregnancy ultrasound",
+            "fetal ultrasound",
+            "prenatal scan",
+            "b-mode",
+            "scanning",
+            "sonogram",
+            "gestational sac",
+            "heart rate",
+            "embryo",
+            "fetal pole",
+            "abort",
+            "scan report",
+            "ultrasound report",
+            "biometry report",
+            "anatomy scan",
+            "mid-trimester",
+            "second trimester",
+            "cardiovascular",
+            "cardiac screening",
+        ]
+        if any(k in t for k in scan_keywords):
             return "SCAN"
 
         # ─── Final default ────────────────────────────────────────────────
         # For audio/video with no keywords, default to SCAN but log it
-        # This is better than guessing — the user can manually correct if needed
-        if source in ("audio", "video"):
+        # For PDFs, ALSO default to SCAN since in fetal medicine context,
+        # most reports are either SCAN, CMA, or SERUM (WES is less common as PDF)
+        if source in ("audio", "video", "pdf"):
             print(f"DEBUG ReportDetector: no keywords matched for {source} — defaulting SCAN")
-            print(f"DEBUG ReportDetector: transcript was: {text[:100]}")
+            print(f"DEBUG ReportDetector: content preview: {text[:100]}")
             return "SCAN"
 
         return "WES"

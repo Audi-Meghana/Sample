@@ -354,8 +354,11 @@ export default function DoctorChatbot() {
   const [conversations, setConversations] = useState([]);
   const [currentChatId, setCurrentChatId] = useState(null);
   const [isAnalyzing,   setIsAnalyzing]   = useState(false);
+  const [liveTranscript,setLiveTranscript]= useState("");
+  const [interimText,   setInterimText]   = useState("");
   const recorderRef = useRef(null);
   const chunksRef   = useRef([]);
+  const recognitionRef = useRef(null);
   const chatEndRef  = useRef(null);
   const navigate    = useNavigate();
   const location    = useLocation();
@@ -384,6 +387,20 @@ export default function DoctorChatbot() {
   useEffect(() => { fetchConversations(); }, []);
   useEffect(() => { chatEndRef.current?.scrollIntoView({behavior:"smooth"}); }, [messages]);
 
+  // Cleanup Web Speech API and recording on unmount or conversation change
+  useEffect(() => {
+    return () => {
+      console.log("[Chatbot Voice] Cleaning up resources");
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+        recognitionRef.current = null;
+      }
+      if (recorderRef.current?.stream) {
+        recorderRef.current.stream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [currentChatId]);
+
   const fetchConversations = async () => {
     try {
       const res = await API.get("/chat/conversation");
@@ -398,8 +415,16 @@ export default function DoctorChatbot() {
       setMessages(p=>[...p,{sender:"ai",text:"Please upload a gene file or enter clinical findings to begin analysis."}]);
       return;
     }
+    
+    // Validate audio blob before sending
+    if (audioBlob && audioBlob.size === 0) {
+      console.error("[Chatbot Voice] Error: Audio blob is empty");
+      alert("Voice recording error: No audio captured. Please try recording again.");
+      return;
+    }
+    
     const cI=input, cF=file, cA=audioBlob, cFS=fileSize;
-    setInput(""); setFile(null); setAudioBlob(null); setFileSize(null);
+    setInput(""); setFile(null); setAudioBlob(null); setFileSize(null); setLiveTranscript(""); setInterimText("");
 
     const easy = async (t) => {
       setMessages(p=>[...p,{sender:"doctor",text:cI},{sender:"ai",text:t}]);
@@ -428,8 +453,17 @@ export default function DoctorChatbot() {
       if (cF||cA) {
         const fd=new FormData();
         if (cF) fd.append("file",cF);
-        if (cA) fd.append("file",cA,"recorded.webm");
-        fd.append("text",cI);
+        if (cA) {
+          console.log("[Chatbot Voice] Appending audio blob. Size:", cA.size);
+          fd.append("file",cA,"recorded.webm");
+          // 🎤 Use live transcription text if available (Web Speech API)
+          // Otherwise backend will use Whisper transcription from audio
+          if (liveTranscript) {
+            console.log("[Chatbot Voice] Using live transcription text for analysis");
+            fd.append("voice_transcription", liveTranscript);
+          }
+        }
+        fd.append("text",cI||liveTranscript);  // Use voice transcription if no manual text entered
         fd.append("gestation",20);
         fd.append("conversationId",currentChatId);
         if (cF) { fd.append("fileName", cF.name); fd.append("fileSize", cF.size); }
@@ -450,11 +484,34 @@ export default function DoctorChatbot() {
       
       const cr = await API.post("/checklist", checklistPayload);
       if (!cr.data.success) { setMessages(p=>[...p,{sender:"ai",text:cr.data.message||"Checklist generation failed."}]); setIsAnalyzing(false); return; }
-      const checklistData = cr.data.data?.checklist || cr.data.data;
+      
+      // 🎯 Format checklist data properly (handle both WES and non-WES formats)
+      let checklistData = cr.data.data?.checklist || cr.data.data;
+      
+      // If checklist is an array (from WES), transform it to object format
+      if (Array.isArray(checklistData)) {
+        console.log("[Chatbot] Formatting checklist from array to object format");
+        const grouped = {};
+        checklistData.forEach(item => {
+          const cat = item.category || "Clinical Actions";
+          if (!grouped[cat]) grouped[cat] = [];
+          grouped[cat].push(item.task || String(item));
+        });
+        // Map to expected format for ChecklistCard
+        checklistData = {
+          core_prenatal_findings: grouped["Core Findings"] || grouped["core_prenatal_findings"] || [],
+          supportive_findings: grouped["Supportive Findings"] || grouped["supportive_findings"] || [],
+          negative_findings: grouped["Negative Findings"] || grouped["negative_findings"] || [],
+        };
+      }
+      
+      console.log("[Chatbot] Final checklist format:", checklistData);
       setMessages(p=>[...p,{sender:"ai",type:"checklist",checklistData,gene,reportType}]);
     } catch(err) {
       setMessages(p=>p.filter(m=>m.type!=="loading"));
-      setMessages(p=>[...p,{sender:"ai",text:err.response?.data?.message||"Gene not detected in dataset."}]);
+      const errMsg = err.response?.data?.message || "Gene not detected in dataset.";
+      console.error("[Chatbot Voice] Error:", errMsg);
+      setMessages(p=>[...p,{sender:"ai",text:errMsg}]);
     }
     setIsAnalyzing(false);
   };
@@ -465,6 +522,14 @@ export default function DoctorChatbot() {
       await fetchConversations();
       setCurrentChatId(r.data._id);
       setMessages([]);
+      // Clear voice recording state
+      setInput("");
+      setFile(null);
+      setAudioBlob(null);
+      setLiveTranscript("");
+      setInterimText("");
+      setIsRecording(false);
+      recognitionRef.current?.stop();
       if (isMobile) setPanelOpen(false);
     } catch {}
   };
@@ -472,14 +537,66 @@ export default function DoctorChatbot() {
   const handleMic = async () => {
     if (!isRecording) {
       try {
-        const s = await navigator.mediaDevices.getUserMedia({audio:true});
-        const r = new MediaRecorder(s);
-        recorderRef.current=r; chunksRef.current=[];
-        r.ondataavailable=e=>chunksRef.current.push(e.data);
-        r.onstop=()=>setAudioBlob(new Blob(chunksRef.current,{type:"audio/webm"}));
-        r.start(); setIsRecording(true);
-      } catch { alert("Microphone permission denied"); }
-    } else { recorderRef.current.stop(); setIsRecording(false); }
+        // Request microphone and start MediaRecorder
+        const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+        const mediaRec = new MediaRecorder(stream);
+        recorderRef.current = mediaRec;
+        chunksRef.current = [];
+        mediaRec.ondataavailable = e => chunksRef.current.push(e.data);
+        mediaRec.onstop = () => {
+          const blob = new Blob(chunksRef.current, {type:"audio/webm"});
+          console.log("[Chatbot Voice] Recording stopped. Blob size:", blob.size);
+          setAudioBlob(blob);
+        };
+        mediaRec.onerror = (e) => {
+          console.error("[Chatbot Voice] MediaRecorder error:", e);
+          alert("Recording error: " + e.error);
+        };
+        mediaRec.start();
+        setIsRecording(true);
+        setLiveTranscript("");
+        
+        // Start Web Speech API for live transcription
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SpeechRecognition) {
+          const recognition = new SpeechRecognition();
+          recognition.continuous = true;
+          recognition.interimResults = true;
+          recognition.lang = "en-US";
+          recognition.onstart = () => console.log("[Chatbot Voice] Speech recognition started");
+          recognition.onresult = (e) => {
+            let final = "", interim = "";
+            for (let i = e.resultIndex; i < e.results.length; i++) {
+              if (e.results[i].isFinal) final += e.results[i][0].transcript + " ";
+              else interim += e.results[i][0].transcript;
+            }
+            if (final) setLiveTranscript(prev => prev + final);
+            setInterimText(interim);
+          };
+          recognition.onend = () => {
+            if (isRecording) recognition.start();
+          };
+          recognition.onerror = (e) => {
+            console.error("[Chatbot Voice] Speech recognition error:", e.error);
+          };
+          recognition.start();
+          recognitionRef.current = recognition;
+        }
+      } catch (err) {
+        console.error("[Chatbot Voice] Microphone error:", err);
+        alert("Microphone access denied. Please allow microphone permissions.");
+      }
+    } else {
+      // Stop recording
+      console.log("[Chatbot Voice] Stopping microphone");
+      recognitionRef.current?.stop();
+      setInterimText("");
+      recorderRef.current?.stop();
+      setIsRecording(false);
+      if (recorderRef.current?.stream) {
+        recorderRef.current.stream.getTracks().forEach(track => track.stop());
+      }
+    }
   };
 
   const handleChecklistSubmit = async (data, gene, reportType) => {
@@ -1024,22 +1141,53 @@ export default function DoctorChatbot() {
                   </div>
                 )}
 
-                {/* Audio preview */}
-                {audioBlob && (
-                  <div style={{display:"flex",alignItems:"center",gap:"9px",background:T.p50,border:`1px solid ${T.p200}`,borderRadius:"12px",padding:"9px 13px",marginBottom:"8px"}}>
-                    <div style={{width:"38px",height:"38px",borderRadius:"10px",background:`linear-gradient(135deg,${T.p600},${T.p500})`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                      <Mic size={16} color="#fff"/>
-                    </div>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:"13px",fontWeight:700,color:T.p600,marginBottom:"4px"}}>Voice Recording</div>
-                      <audio controls src={URL.createObjectURL(audioBlob)} style={{width:"100%",maxWidth:"280px"}}/>
-                    </div>
-                    <button onClick={()=>setAudioBlob(null)}
-                      style={{background:"none",border:"none",cursor:"pointer",padding:"4px",display:"flex",alignItems:"center",color:T.muted}}>
-                      <X size={14}/>
-                    </button>
+                {/* Audio preview + live transcription */}
+                {(isRecording || audioBlob || liveTranscript) && (
+                  <div style={{display:"flex",flexDirection:"column",gap:"8px",background:T.p50,border:`1px solid ${T.p200}`,borderRadius:"12px",padding:"12px",marginBottom:"8px"}}>
+                    {/* Recording status */}
+                    {isRecording && (
+                      <div style={{display:"flex",alignItems:"center",gap:"8px",color:T.p600,fontSize:"13px",fontWeight:600}}>
+                        <div style={{width:"10px",height:"10px",background:T.red,borderRadius:"50%",animation:"pulse 1s infinite"}}/>
+                        Recording in progress...
+                      </div>
+                    )}
+                    
+                    {/* Live transcription display */}
+                    {(liveTranscript || interimText) && (
+                      <div style={{background:"#fff",border:`1px solid ${T.border}`,borderRadius:"8px",padding:"10px",fontSize:"13px",color:T.text,lineHeight:"1.5"}}>
+                        <div style={{fontWeight:500,color:T.p600,marginBottom:"4px"}}>Transcription:</div>
+                        <div>{liveTranscript}<span style={{fontStyle:"italic",opacity:0.7}}>{interimText}</span></div>
+                      </div>
+                    )}
+                    
+                    {/* Audio playback (after recording stopped) */}
+                    {audioBlob && (
+                      <div style={{display:"flex",alignItems:"center",gap:"10px",background:"#fff",border:`1px solid ${T.border}`,borderRadius:"10px",padding:"10px"}}>
+                        <div style={{width:"36px",height:"36px",borderRadius:"8px",background:`linear-gradient(135deg,${T.p600},${T.p500})`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                          <Mic size={15} color="#fff"/>
+                        </div>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:"12px",fontWeight:700,color:T.p600,marginBottom:"5px"}}>
+                            Audio Ready • {(audioBlob.size / 1024).toFixed(1)}KB
+                          </div>
+                          <audio controls src={URL.createObjectURL(audioBlob)} 
+                            style={{width:"100%",maxWidth:"240px",height:"24px",outline:"none"}}/>
+                        </div>
+                        <button onClick={()=>{setAudioBlob(null);setLiveTranscript("");}}
+                          style={{background:"none",border:"none",cursor:"pointer",padding:"4px",display:"flex",alignItems:"center",color:T.muted}}>
+                          <X size={16}/>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
+                
+                <style>{`
+                  @keyframes pulse {
+                    0%, 100% { opacity: 1; }
+                    50% { opacity: 0.5; }
+                  }
+                `}</style>
 
                 <div className="dc-inputbar" style={{display:"flex",alignItems:"center",gap:"8px",background:"#f8f8fc",border:`1.5px solid ${T.border}`,borderRadius:"14px",padding:"5px 8px",transition:"border-color .2s, box-shadow .2s"}}>
                   <label className="dc-clip" style={{color:T.light,cursor:"pointer",display:"flex",alignItems:"center",padding:"7px",borderRadius:"9px",transition:"all .15s"}} title="Attach file">

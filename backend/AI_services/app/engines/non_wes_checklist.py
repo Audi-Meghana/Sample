@@ -171,8 +171,15 @@ Return ONLY a JSON object:
 """
     result = _call_groq(prompt)
     if result and isinstance(result, dict):
-        return result.get("clinical_significance", "No clinical significance noted.")
-    return "No clinical significance noted."
+        significance = result.get("clinical_significance", "No clinical significance noted.")
+        return [{
+            "task": significance,
+            "status": "reviewed"
+        }]
+    return [{
+        "task": "No clinical significance noted.",
+        "status": "reviewed"
+    }]
 
 
 # ─────────────────────────────────────────
@@ -182,6 +189,13 @@ def generate_scan_checklist(data: dict) -> list:
     anomalies   = data.get("anomalies", []) or []
     hpo_context = []
     kb_context  = []
+
+    # ✅ Handle case where anomalies is empty or null
+    if not anomalies:
+        return [{
+            "task": "No anomalies detected",
+            "status": "normal"
+        }]
 
     for anomaly in anomalies[:5]:
         hpo = _lookup_hpo(anomaly)
@@ -223,8 +237,15 @@ Return ONLY a JSON object:
 """
     result = _call_groq(prompt)
     if result and isinstance(result, dict):
-        return result.get("clinical_significance", "No clinical significance noted.")
-    return "No clinical significance noted."
+        significance = result.get("clinical_significance", "No clinical significance noted.")
+        return [{
+            "task": significance,
+            "status": "reviewed"
+        }]
+    return [{
+        "task": "No clinical significance noted.",
+        "status": "reviewed"
+    }]
 
 
 # ─────────────────────────────────────────
@@ -271,5 +292,12 @@ Return ONLY a JSON object:
 """
     result = _call_groq(prompt)
     if result and isinstance(result, dict):
-        return result.get("clinical_significance", "No clinical significance noted.")
-    return "No clinical significance noted."
+        significance = result.get("clinical_significance", "No clinical significance noted.")
+        return [{
+            "task": significance,
+            "status": "reviewed"
+        }]
+    return [{
+        "task": "No clinical significance noted.",
+        "status": "reviewed"
+    }]

@@ -833,41 +833,74 @@ const recognitionRef = useRef(null);
   /* ── VOICE ── */
  const handleMic = async () => {
   if (!isRecording) {
-    // Start live transcription preview
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      const rec = new SpeechRecognition();
-      rec.continuous = true;
-      rec.interimResults = true;
-      rec.onresult = (e) => {
-        let final = "", interim = "";
-        for (let i = e.resultIndex; i < e.results.length; i++) {
-          if (e.results[i].isFinal) final += e.results[i][0].transcript + " ";
-          else interim += e.results[i][0].transcript;
-        }
-        setLiveTranscript(prev => prev + final);
-        setInterimText(interim);
+    try {
+      // Request microphone permission first
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      // Start MediaRecorder for actual audio blob → Whisper
+      const mediaRec = new MediaRecorder(stream);
+      let chunks = [];
+      mediaRec.ondataavailable = e => {
+        console.log("[Voice] Audio chunk received:", e.data.size, "bytes");
+        chunks.push(e.data);
       };
-      rec.onend = () => { if (isRecording) rec.start(); };
-      rec.start();
-      recognitionRef.current = rec;
+      mediaRec.onstop = () => {
+        const blob = new Blob(chunks, { type:"audio/webm" });
+        console.log("[Voice] Recording stopped. Audio blob size:", blob.size, "bytes");
+        setAudioBlob(blob);
+      };
+      mediaRec.onerror = (e) => {
+        console.error("[Voice] MediaRecorder error:", e);
+        alert("Recording error: " + e.error);
+      };
+      mediaRec.start();
+      setMediaRecorder(mediaRec);
+      setIsRecording(true);
+      setLiveTranscript(""); // Reset transcript on new recording
+      
+      // START live transcription AFTER MediaRecorder
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        const rec = new SpeechRecognition();
+        rec.continuous = true;
+        rec.interimResults = true;
+        rec.lang = "en-US";
+        rec.onstart = () => console.log("[Voice] Speech recognition started");
+        rec.onresult = (e) => {
+          let final = "", interim = "";
+          for (let i = e.resultIndex; i < e.results.length; i++) {
+            if (e.results[i].isFinal) final += e.results[i][0].transcript + " ";
+            else interim += e.results[i][0].transcript;
+          }
+          if (final) setLiveTranscript(prev => prev + final);
+          setInterimText(interim);
+        };
+        rec.onend = () => { 
+          console.log("[Voice] Speech recognition ended");
+          if (isRecording) rec.start(); 
+        };
+        rec.onerror = (e) => {
+          console.error("[Voice] Speech recognition error:", e.error);
+        };
+        rec.start();
+        recognitionRef.current = rec;
+      }
+    } catch (err) {
+      console.error("[Voice] Microphone access error:", err);
+      alert("Microphone access denied. Please allow microphone permissions and try again.");
     }
-
-    // Also start MediaRecorder for actual audio blob → Whisper
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const mediaRec = new MediaRecorder(stream);
-    let chunks = [];
-    mediaRec.ondataavailable = e => chunks.push(e.data);
-    mediaRec.onstop = () => { setAudioBlob(new Blob(chunks, { type:"audio/webm" })); };
-    mediaRec.start();
-    setMediaRecorder(mediaRec);
-    setIsRecording(true);
-
   } else {
+    // STOP recording
+    console.log("[Voice] Stopping microphone and speech recognition");
     recognitionRef.current?.stop();
     setInterimText("");
-    mediaRecorder.stop();
+    mediaRecorder?.stop();
     setIsRecording(false);
+    
+    // Stop audio tracks
+    if (mediaRecorder?.stream) {
+      mediaRecorder.stream.getTracks().forEach(track => track.stop());
+    }
   }
 };
 
@@ -875,15 +908,40 @@ const recognitionRef = useRef(null);
  const handleUpload = async () => {
   if (!selectedCase) { alert("Select a case first."); return; }
   if (!file && !audioBlob && !submittedText) { alert("Please provide input."); return; }
+  
+  // ✅ Voice input specific validation
+  if (audioBlob && audioBlob.size === 0) {
+    alert("Recording is empty. Please record again and ensure the audio was captured.");
+    return;
+  }
+  
   try {
     setLoading(true);
     const fd = new FormData();
-    if (file)          fd.append("file", file, file.name);
-    if (audioBlob)     fd.append("file", audioBlob, "voice.webm");
-    if (submittedText) { fd.append("type","text"); fd.append("text",submittedText); }
+    if (file)          { 
+      fd.append("file", file, file.name);
+      console.log("[Upload] File:", file.name, file.size, "bytes");
+    }
+    if (audioBlob)     { 
+      fd.append("file", audioBlob, "voice.webm");
+      console.log("[Upload] Audio blob:", audioBlob.size, "bytes");
+    }
+    if (submittedText) { 
+      fd.append("type","text"); 
+      fd.append("text",submittedText);
+      console.log("[Upload] Text input:", submittedText.length, "chars");
+    }
+    
+    // Get gestational age from selected case
+    const caseData = cases.find(c => c._id === selectedCase);
+    if (caseData?.gestationalAge) {
+      fd.append("gestation", String(caseData.gestationalAge));
+      console.log("[Upload] Gestation age:", caseData.gestationalAge, "weeks");
+    }
  
     const res    = await API.post(`/gene/analyze/${selectedCase}`, fd, {
-      headers: { "Content-Type":"multipart/form-data" }
+      headers: { "Content-Type":"multipart/form-data" },
+      timeout: 120000 // 2 minute timeout for audio processing
     });
     const result = res.data;
     console.log("[GeneAnalysis] Upload result:", JSON.stringify(result).slice(0, 500));
@@ -964,7 +1022,10 @@ const recognitionRef = useRef(null);
         setLoading(false);
         return;
       }
-      alert(result.warning || "Gene not detected in the file. Please check the document contains genetic information, or try uploading a different file type (PDF, text, audio with genetic details).");
+      const errorMsg = audioBlob 
+        ? "Voice input did not contain genetic information. Please speak clearly and mention gene names or findings, e.g., 'Gene name is L1CAM' or 'Variant C-dot 234 A greater than G'."
+        : "Gene not detected in the file. Please check the document contains genetic information, or try uploading a different file type (PDF, text, audio with genetic details).";
+      alert(result.warning || errorMsg);
       setLoading(false); return;
     }
     setGeneData({ ...result.genetic, report_type: "WES" });
@@ -1404,6 +1465,45 @@ const recognitionRef = useRef(null);
         {isRecording ? "Recording… tap to stop" : audioBlob ? "Recording captured ✓" : "Tap to start recording"}
       </div>
     </div>
+
+    {/* ✅ Audio playback preview */}
+    {audioBlob && !isRecording && (
+      <div className="g-audio-prev">
+        <div className="g-audio-top">
+          <span style={{ fontSize: 12, fontWeight: 700, color: "var(--teal)" }}>
+            ✓ Audio Ready ({(audioBlob.size / 1024).toFixed(1)} KB)
+          </span>
+          <button className="g-audio-rm" onClick={() => {
+            setAudioBlob(null);
+            setLiveTranscript("");
+            console.log("[Voice] Recording cleared");
+          }}>
+            <X size={14}/>
+          </button>
+        </div>
+        <audio 
+          controls 
+          style={{ width: "100%" }}
+          src={URL.createObjectURL(audioBlob)}
+          onError={(e) => console.error("[Voice] Audio playback error:", e)}
+        />
+        {liveTranscript && (
+          <div style={{
+            fontSize: 12,
+            color: "var(--slate)",
+            padding: "8px 10px",
+            borderRadius: 8,
+            background: "rgba(124,58,237,0.05)",
+            borderLeft: "3px solid var(--teal)"
+          }}>
+            <strong>Transcription:</strong>
+            <div style={{ marginTop: 4, fontStyle: "italic" }}>
+              {liveTranscript.trim()}
+            </div>
+          </div>
+        )}
+      </div>
+    )}
     {/* ... rest of your audio preview */}
   </div>
 )}

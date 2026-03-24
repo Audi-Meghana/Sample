@@ -109,7 +109,7 @@ async def extract_pdf(
     print(f"DEBUG text preview: {text[:200] if text else 'EMPTY'}")
 
     if not text or len(text.strip()) < 20:
-        raise HTTPException(status_code=400, detail="PDF is empty or unreadable.")
+        raise HTTPException(status_code=400, detail="PDF is empty or unreadable. Please ensure the PDF contains readable text.")
 
     result = ai.extract_structured(text, gestation, source="pdf")
 
