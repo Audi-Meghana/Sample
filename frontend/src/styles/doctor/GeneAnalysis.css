@@ -1309,3 +1309,80 @@
   font-weight: 600;
   color: #444;
 }
+
+/* ================= LIVE TRANSCRIPTION ================= */
+
+.live-transcript {
+  margin-top: 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: #f0f7ff;
+  border: 1px solid #bfe7ff;
+  animation: slideUp 0.3s ease forwards;
+}
+
+.transcript-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #0066cc;
+  margin: 0 0 6px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.transcript-text {
+  font-size: 14px;
+  color: #333;
+  margin: 0;
+  line-height: 1.5;
+  font-style: italic;
+}
+
+.listening-indicator {
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: #fff4e5;
+  border: 1px solid #fbbf24;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #d97706;
+  font-weight: 500;
+  animation: slideUp 0.3s ease forwards;
+}
+
+.pulse {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: #f59e0b;
+  border-radius: 50%;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.2);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Mic button with transcription text */
+.mic-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 14px;
+  white-space: nowrap;
+}

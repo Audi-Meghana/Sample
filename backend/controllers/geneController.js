@@ -38,11 +38,16 @@ exports.startAnalysis = async (req, res) => {
 
     // 🔹 FILE INPUT
     if (req.file) {
+      const fileType = req.file.mimetype || req.file.originalname.split('.').pop();
+      console.log(`[geneController] Processing file: ${req.file.originalname}, type: ${fileType}`);
       result = await fastapiService.extractFile(req.file, gestation);
+      console.log(`[geneController] FastAPI returned:`, JSON.stringify(result).slice(0, 300));
     }
     // 🔹 TEXT INPUT
     else if (type === "text") {
+      console.log(`[geneController] Processing text input`);
       result = await fastapiService.extractText(text, gestation);
+      console.log(`[geneController] FastAPI text result:`, JSON.stringify(result).slice(0, 300));
     }
     else {
       return res.status(400).json({ message: "Invalid input type" });

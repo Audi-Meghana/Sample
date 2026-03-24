@@ -234,6 +234,7 @@ def calculate_cma_score(extracted: dict) -> dict:
     risk_info   = _get_risk_level(final_score)
     
     logger.info(f"[CMA] Final calculation: raw_score={raw_score}, final_score={final_score}, risk_level={risk_info['risk_level']}")
+    return {
         "score_type":    "Clinical Risk Score (CMA)",
         "report_type":   "CMA",
         "raw_score":     round(raw_score, 2),

@@ -1018,3 +1018,81 @@
   }
 }
 
+/* ================= LIVE TRANSCRIPTION IN CHATBOT ================= */
+
+.live-transcript-chat {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #f0f7ff;
+  border: 1px solid #bfe7ff;
+  animation: slideUp 0.3s ease forwards;
+}
+
+.live-transcript-chat .transcript-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #0066cc;
+  margin: 0 0 6px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.live-transcript-chat .transcript-text {
+  font-size: 13px;
+  color: #333;
+  margin: 0;
+  line-height: 1.5;
+  font-style: italic;
+}
+
+.listening-indicator-chat {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fff4e5;
+  border: 1px solid #fbbf24;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #d97706;
+  font-weight: 500;
+  animation: slideUp 0.3s ease forwards;
+}
+
+.pulse {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  background: #f59e0b;
+  border-radius: 50%;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.2);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+

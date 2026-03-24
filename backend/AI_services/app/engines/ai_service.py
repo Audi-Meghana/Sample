@@ -57,15 +57,15 @@ class ClinicalAIService:
 
     def extract_structured(self, text, gestation=None, source="text"):
 
-        print(f"DEBUG extract_structured called")
+        print(f"DEBUG extract_structured called with source={source}")
 
         # ── Detect report type ──
         if self.report_detector:
-            report_type = self.report_detector.detect(text)
+            report_type = self.report_detector.detect(text, source=source)
         else:
-            report_type = "WES"
+            report_type = "WES" if source != "audio" and source != "video" else "SCAN"
 
-        print(f"DEBUG report_type: {report_type}")
+        print(f"DEBUG report_type: {report_type} (source: {source})")
 
         # ── CMA ──
         if report_type == "CMA" and _non_wes_available:

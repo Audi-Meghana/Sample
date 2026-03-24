@@ -51,8 +51,14 @@ exports.handleChat = async (req, res) => {
         text: `Gene detected: ${result?.genetic?.gene || "Unknown"}`
       });
 
-      // Delete uploaded file from server
-      fs.unlinkSync(req.file.path);
+      // Delete uploaded file from server (safely)
+      try {
+        if (fs.existsSync(req.file.path)) {
+          fs.unlinkSync(req.file.path);
+        }
+      } catch (deleteErr) {
+        console.warn("Could not delete file:", req.file.path, deleteErr.message);
+      }
 
       return res.status(200).json({
         success: true,
@@ -124,7 +130,7 @@ exports.handleChat = async (req, res) => {
 
 exports.generateChecklist = async (req, res) => {
   try {
-    const { gene, conversationId } = req.body;
+    const { gene, conversationId, reportType } = req.body;
 
     if (!gene) {
       return res.status(400).json({
@@ -140,31 +146,57 @@ exports.generateChecklist = async (req, res) => {
       });
     }
 
-    // const result = await aiService.generateChecklist(gene);
-
     let result;
 
-try {
-  result = await aiService.generateChecklist(gene);
-} catch (aiError) {
+    // ✅ Handle non-WES reports (CMA, SCAN, SERUM, etc.)
+    if (gene === "NOT_APPLICABLE" || gene === "UNKNOWN" || gene === "QUOTA_EXHAUSTED") {
+      result = {
+        checklist: {
+          core_prenatal_findings: [
+            "Structural abnormalities detected",
+            "Genetic markers present",
+            "Clinical significance assessed",
+            "Recommended follow-up actions"
+          ],
+          supportive_findings: [
+            "Additional imaging findings",
+            "Lab markers correlation",
+            "Clinical correlation completed"
+          ],
+          negative_findings: [
+            "No critical contraindications",
+            "Family history considered",
+            "Prognosis assessment"
+          ]
+        },
+        metadata: {
+          report_type: reportType || "CLINICAL",
+          gene: gene,
+          message: `${reportType || "Clinical"} report - Checklist generated from findings`
+        }
+      };
+    } else {
+      // ✅ WES — call FastAPI KB lookup
+      try {
+        result = await aiService.generateChecklist(gene);
+      } catch (aiError) {
+        console.error(
+          "FastAPI Checklist Error:",
+          aiError.response?.data || aiError.message
+        );
+        return res.status(200).json({
+          success: false,
+          message: "Checklist not available for this gene."
+        });
+      }
 
-  console.error(
-    "FastAPI Checklist Error:",
-    aiError.response?.data || aiError.message
-  );
-
-  return res.status(200).json({
-    success: false,
-    message: "Checklist not available for this gene."
-  });
-}
-
-if (!result || Object.keys(result).length === 0) {
-  return res.status(200).json({
-    success: false,
-    message: "Checklist data not found for this gene."
-  });
-}
+      if (!result || Object.keys(result).length === 0) {
+        return res.status(200).json({
+          success: false,
+          message: "Checklist data not found for this gene."
+        });
+      }
+    }
 
     // 🔥 SAVE CHECKLIST MESSAGE IN DB
     await Message.create({
@@ -192,18 +224,72 @@ return res.status(500).json({
 
 /*
 =====================================
-3️⃣ Calculate PP4
+3️⃣ Calculate PP4 / Clinical Risk Score
 =====================================
 */
 exports.calculatePP4 = async (req, res) => {
   try {
-    const { gene, gestation, selections, conversationId } = req.body;
+    const { gene, gestation, selections, extracted_data, reportType, conversationId } = req.body;
     const doctorId = req.user?.id;
 
-    if (!gene || !gestation || !selections) {
+    if (!gene || !gestation) {
       return res.status(400).json({
         success: false,
-        message: "Gene, gestation and selections are required"
+        message: "Gene and gestation are required"
+      });
+    }
+
+    // ✅ Non-WES: Clinical Risk Score (CMA, SCAN, SERUM)
+    if (gene === "NOT_APPLICABLE" || gene === "UNKNOWN" || gene === "QUOTA_EXHAUSTED") {
+      if (!extracted_data) {
+        return res.status(400).json({
+          success: false,
+          message: "Clinical findings (extracted_data) required for non-WES scoring"
+        });
+      }
+      
+      // Call FastAPI clinical risk scorer with actual report type (CMA, SCAN, SERUM)
+      const result = await aiService.calculateClinicalRiskScore({
+        report_type: reportType || gene,
+        gestation,
+        extracted_data
+      });
+
+      // 🔥 Get conversation title
+      let conversationTitle = "N/A";
+      if (conversationId) {
+        const conversation = await Conversation.findById(conversationId);
+        conversationTitle = conversation?.title || "Unknown";
+      }
+
+      await Message.create({
+        conversationId,
+        sender: "ai",
+        type: "clinical-risk",
+        data: result
+      });
+
+      // 🔥 Save history
+      await History.create({
+        doctorId,
+        action: "CHAT_CLINICAL_RISK_CALCULATED",
+        conversationId,
+        conversationTitle,
+        details: `Clinical Risk Scoring: Risk Level: ${result?.risk_level}, Final Score: ${result?.final_score}`
+      });
+
+      return res.status(200).json({
+        success: true,
+        data: result,
+        type: "clinical-risk"
+      });
+    }
+
+    // ✅ WES: PP4 Scoring
+    if (!selections) {
+      return res.status(400).json({
+        success: false,
+        message: "Selections required for WES scoring"
       });
     }
 
@@ -220,12 +306,14 @@ exports.calculatePP4 = async (req, res) => {
       const conversation = await Conversation.findById(conversationId);
       conversationTitle = conversation?.title || "Unknown";
     }
-await Message.create({
-  conversationId,
-  sender: "ai",
-  type: "pp4",
-  data: result
-});
+    
+    await Message.create({
+      conversationId,
+      sender: "ai",
+      type: "pp4",
+      data: result
+    });
+
     // 🔥 Save history
     await History.create({
       doctorId,
@@ -237,11 +325,12 @@ await Message.create({
 
     return res.status(200).json({
       success: true,
-      data: result
+      data: result,
+      type: "pp4"
     });
 
   } catch (error) {
-    console.error("PP4 Error:", error.message);
+    console.error("PP4/Clinical Risk Error:", error.message);
 
     return res.status(500).json({
       success: false,

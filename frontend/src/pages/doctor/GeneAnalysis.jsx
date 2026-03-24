@@ -40,11 +40,16 @@ const [animatedFinal, setAnimatedFinal] = useState(0);
 
   const [voiceText, setVoiceText] = useState("");
   const [isRecording, setIsRecording] = useState(false);
-  // const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState(null);
   const [mediaRecorder, setMediaRecorder] = useState(null);
   const [voiceSubmitted, setVoiceSubmitted] = useState(false);
   const [submittedText, setSubmittedText] = useState("");
+  
+  // Live transcription states
+  const [liveTranscript, setLiveTranscript] = useState("");
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [recognitionRef, setRecognitionRef] = useState(null);
+  
   const navigate = useNavigate();
 
 
@@ -89,6 +94,62 @@ useEffect(() => {
 
 
 
+
+// Initialize Web Speech API
+useEffect(() => {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  
+  if (SpeechRecognition) {
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+
+    recognition.onstart = () => {
+      setIsTranscribing(true);
+      setLiveTranscript("");
+    };
+
+    recognition.onresult = (event) => {
+      let interimTranscript = "";
+      let finalTranscript = "";
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        
+        if (event.results[i].isFinal) {
+          finalTranscript += transcript + " ";
+        } else {
+          interimTranscript += transcript;
+        }
+      }
+
+      setLiveTranscript(finalTranscript + interimTranscript);
+      setVoiceText((prev) => prev + finalTranscript);
+    };
+
+    recognition.onerror = (event) => {
+      console.error("Speech recognition error:", event.error);
+      if (event.error !== "no-speech" && event.error !== "audio-capture") {
+        alert(`Transcription error: ${event.error}`);
+      }
+    };
+
+    recognition.onend = () => {
+      setIsTranscribing(false);
+    };
+
+    setRecognitionRef(recognition);
+  } else {
+    console.warn("Web Speech API not supported in this browser");
+  }
+
+  return () => {
+    if (recognitionRef) {
+      recognitionRef.abort();
+    }
+  };
+}, []);
 
 useEffect(() => {
   const fetchCases = async () => {
@@ -416,9 +477,9 @@ doc.text(`Variant: ${geneData?.variant || "N/A"}`, 20, 45);
         
 
 
-        const handleMicClick = async () => {
+const handleMicClick = async () => {
   if (!isRecording) {
-    // Start Recording
+    // Start Recording with Live Transcription
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
@@ -432,28 +493,41 @@ doc.text(`Variant: ${geneData?.variant || "N/A"}`, 20, 45);
       recorder.onstop = async () => {
         const blob = new Blob(chunks, { type: "audio/webm" });
         setAudioBlob(blob);
-
-        // 🔥 Simulate backend upload (frontend only)
         console.log("Audio ready to upload:", blob);
-
-        
-
         chunks = [];
       };
 
       recorder.start();
       setMediaRecorder(recorder);
       setIsRecording(true);
+      
+      // Start live transcription
+      if (recognitionRef) {
+        recognitionRef.start();
+      }
 
     } catch (error) {
       alert("Microphone permission denied.");
     }
   } else {
-    // Stop Recording
-    mediaRecorder.stop();
+    // Stop Recording and Transcription
+    if (mediaRecorder) {
+      mediaRecorder.stop();
+    }
     setIsRecording(false);
+    
+    // Stop transcription
+    if (recognitionRef) {
+      recognitionRef.stop();
+    }
+    
+    // Finalize the transcribed text
+    if (liveTranscript.trim()) {
+      setVoiceText((prev) => prev.trim());
+    }
   }
 };
+
 const handleUploadToBackend = async () => {
   if (!selectedCase) {
     alert("Please select a case first.");
@@ -726,7 +800,7 @@ setGeneData(prev => ({
       value={voiceText}
       onChange={(e) => {
         setVoiceText(e.target.value);
-        setVoiceSubmitted(false); // reset when typing again
+        setVoiceSubmitted(false);
       }}
       onKeyDown={(e) => {
        if (e.key === "Enter") {
@@ -741,16 +815,32 @@ setGeneData(prev => ({
   setVoiceSubmitted(true);
   setSubmittedText(voiceText);
   setVoiceText("");
+  setLiveTranscript("");
 }
       }}
     />
 
-    
+    {/* Live Transcription Display */}
+    {isRecording && liveTranscript && (
+      <div className="live-transcript">
+        <p className="transcript-label">Live Transcript:</p>
+        <p className="transcript-text">{liveTranscript}</p>
+      </div>
+    )}
+
+    {isTranscribing && !liveTranscript && isRecording && (
+      <div className="listening-indicator">
+        <span className="pulse"></span> Listening...
+      </div>
+    )}
+
     <button
       className={`mic-btn ${isRecording ? "recording" : ""}`}
       onClick={handleMicClick}
+      title={isRecording ? "Stop recording & transcription" : "Start recording & transcription"}
     >
       <MicIcon size={20}/>
+      {isRecording ? " Stop" : " Start"}
     </button>
   </div>
 )}

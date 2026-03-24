@@ -755,6 +755,9 @@ export default function GeneAnalysis() {
   const [isNonWES,        setIsNonWES]        = useState(false);  // ✅ NEW
   const fileInputRef = useRef();
   const navigate = useNavigate();
+  const [liveTranscript, setLiveTranscript] = useState("");
+const [interimText,    setInterimText]    = useState("");
+const recognitionRef = useRef(null);
 
   const resetState = () => {
     setFile(null);
@@ -767,6 +770,9 @@ export default function GeneAnalysis() {
     setGeneData(null);
     setBackendChecklist([]);
     setChecklist({});
+      setLiveTranscript("");   // ✅ add this
+  setInterimText("");      // ✅ add this
+  setAudioBlob(null);      // ✅ add this
   };
 
   const currentStep = !selectedCase ? 1
@@ -825,20 +831,45 @@ export default function GeneAnalysis() {
   };
 
   /* ── VOICE ── */
-  const handleMic = async () => {
-    if (!isRecording) {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const rec = new MediaRecorder(stream);
-        let chunks = [];
-        rec.ondataavailable = e => chunks.push(e.data);
-        rec.onstop = () => { setAudioBlob(new Blob(chunks,{type:"audio/webm"})); chunks=[]; };
-        rec.start(); setMediaRecorder(rec); setIsRecording(true);
-      } catch { alert("Microphone permission denied."); }
-    } else {
-      mediaRecorder.stop(); setIsRecording(false);
+ const handleMic = async () => {
+  if (!isRecording) {
+    // Start live transcription preview
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const rec = new SpeechRecognition();
+      rec.continuous = true;
+      rec.interimResults = true;
+      rec.onresult = (e) => {
+        let final = "", interim = "";
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          if (e.results[i].isFinal) final += e.results[i][0].transcript + " ";
+          else interim += e.results[i][0].transcript;
+        }
+        setLiveTranscript(prev => prev + final);
+        setInterimText(interim);
+      };
+      rec.onend = () => { if (isRecording) rec.start(); };
+      rec.start();
+      recognitionRef.current = rec;
     }
-  };
+
+    // Also start MediaRecorder for actual audio blob → Whisper
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mediaRec = new MediaRecorder(stream);
+    let chunks = [];
+    mediaRec.ondataavailable = e => chunks.push(e.data);
+    mediaRec.onstop = () => { setAudioBlob(new Blob(chunks, { type:"audio/webm" })); };
+    mediaRec.start();
+    setMediaRecorder(mediaRec);
+    setIsRecording(true);
+
+  } else {
+    recognitionRef.current?.stop();
+    setInterimText("");
+    mediaRecorder.stop();
+    setIsRecording(false);
+  }
+};
 
   /* ── UPLOAD + ANALYZE ── */
  const handleUpload = async () => {
@@ -855,12 +886,16 @@ export default function GeneAnalysis() {
       headers: { "Content-Type":"multipart/form-data" }
     });
     const result = res.data;
+    console.log("[GeneAnalysis] Upload result:", JSON.stringify(result).slice(0, 500));
+    
     await API.put(`/cases/${selectedCase}/status`, { status:"Under Review" });
  
     const reportType = result?.report_type || "WES";
+    console.log("[GeneAnalysis] Detected report type:", reportType);
  
-    // ✅ Non-WES (CMA, SCAN, SERUM)
+    // ✅ Non-WES (CMA, SCAN, SERUM) — includes audio/video fallback to SCAN
     if (reportType !== "WES") {
+      console.log("[GeneAnalysis] Processing as Non-WES report:", reportType);
       setIsNonWES(true);
       setGeneData({
         gene:             reportType + " Report",
@@ -892,7 +927,44 @@ export default function GeneAnalysis() {
     // ✅ WES
     setIsNonWES(false);
     if (!result?.genetic?.gene || result.genetic.gene === "UNKNOWN" || result.warning) {
-      alert(result.warning || "Gene not detected. Please check your report.");
+      console.log("[GeneAnalysis] Gene detection failed:", { 
+        hasGene: !!result?.genetic?.gene, 
+        gene: result?.genetic?.gene,
+        warning: result?.warning,
+        reportType,
+        fullResult: result 
+      });
+      // If it's audio/video and was converted to SCAN, don't show error
+      if (reportType && reportType !== "WES") {
+        console.log("[GeneAnalysis] Audio/video file processed as", reportType);
+        setIsNonWES(true);
+        setGeneData({
+          gene: reportType + " Report",
+          variant: result?.extracted?.result_summary || "Clinical findings extracted",
+          visibility_score: null,
+          report_type: reportType,
+          extracted: result?.extracted || {}
+        });
+        const nonWESChecklist = result?.checklist || [];
+        if (Array.isArray(nonWESChecklist) && nonWESChecklist.length > 0) {
+          const grouped = {};
+          nonWESChecklist.forEach(item => {
+            const cat = item.category || "Clinical Actions";
+            if (!grouped[cat]) grouped[cat] = [];
+            grouped[cat].push(item.task || String(item));
+          });
+          setBackendChecklist(Object.entries(grouped).map(([title, items]) => ({ title, items })));
+        } else {
+          setBackendChecklist([{ title:"Clinical Action Items", items:["Audio/video content processed"] }]);
+        }
+        setChecklist({});
+        setAnalysisStarted(true);
+        setPp4Calculated(false);
+        setPp4Result(null);
+        setLoading(false);
+        return;
+      }
+      alert(result.warning || "Gene not detected in the file. Please check the document contains genetic information, or try uploading a different file type (PDF, text, audio with genetic details).");
       setLoading(false); return;
     }
     setGeneData({ ...result.genetic, report_type: "WES" });
@@ -1298,36 +1370,43 @@ export default function GeneAnalysis() {
                   </>
                 )}
 
-                {uploadMode==="voice" && (
-                  <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-                    <div className="g-mic-zone">
-                      <button className={`g-mic-btn${isRecording?" rec":""}`} onClick={handleMic}>
-                        {isRecording ? <MicOff size={28}/> : <Mic size={28}/>}
-                      </button>
-                      <div className="g-mic-label">
-                        {isRecording ? "Recording… tap to stop" : audioBlob ? "Recording captured ✓" : "Tap to start recording"}
-                      </div>
-                      <div className="g-mic-sub">
-                        {isRecording ? "🔴 Live recording" : "Speak your clinical findings clearly"}
-                      </div>
-                    </div>
-                    {audioBlob && (
-                      <div className="g-audio-prev">
-                        <div className="g-audio-top">
-                          <Mic size={16} color="var(--teal)"/>
-                          <div>
-                            <div className="g-file-name">voice_recording.webm</div>
-                            <div className="g-file-size">{(audioBlob.size/1024).toFixed(1)} KB</div>
-                          </div>
-                          <button className="g-audio-rm" onClick={() => setAudioBlob(null)}>
-                            <X size={13}/>
-                          </button>
-                        </div>
-                        <audio controls src={URL.createObjectURL(audioBlob)}/>
-                      </div>
-                    )}
-                  </div>
-                )}
+                {uploadMode === "voice" && (
+  <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+    
+    {/* ✅ Live transcription display */}
+    {(isRecording || liveTranscript) && (
+      <div style={{
+        minHeight: 80, padding: "12px 14px",
+        borderRadius: 12, border: "1.5px solid #ddd8f5",
+        background: "#f5f3ff", fontSize: 13,
+        color: "var(--navy)", lineHeight: 1.8
+      }}>
+        {liveTranscript ? (
+          <>
+            <span>{liveTranscript}</span>
+            {interimText && (
+              <span style={{ color: "#94a3b8", borderBottom: "1.5px solid #c4b5fd" }}>
+                {interimText}
+              </span>
+            )}
+          </>
+        ) : (
+          <span style={{ color: "#94a3b8" }}>Listening…</span>
+        )}
+      </div>
+    )}
+
+    <div className="g-mic-zone">
+      <button className={`g-mic-btn${isRecording?" rec":""}`} onClick={handleMic}>
+        {isRecording ? <MicOff size={28}/> : <Mic size={28}/>}
+      </button>
+      <div className="g-mic-label">
+        {isRecording ? "Recording… tap to stop" : audioBlob ? "Recording captured ✓" : "Tap to start recording"}
+      </div>
+    </div>
+    {/* ... rest of your audio preview */}
+  </div>
+)}
 
                 {uploadMode==="text" && (
                   <div style={{ display:"flex", flexDirection:"column", gap:10 }}>

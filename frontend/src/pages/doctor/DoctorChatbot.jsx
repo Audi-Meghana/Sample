@@ -28,6 +28,11 @@ export default function DoctorChatbot() {
   const [file, setFile] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState(null);
+  
+  // Live transcription states
+  const [liveTranscript, setLiveTranscript] = useState("");
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [recognitionRef, setRecognitionRef] = useState(null);
 
  const [showConversations, setShowConversations] = useState(false);
 const [conversations, setConversations] = useState([]);
@@ -141,6 +146,62 @@ useEffect(() => {
 
 useEffect(() => {
   fetchConversations();
+}, []);
+
+// Initialize Web Speech API for live transcription
+useEffect(() => {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  
+  if (SpeechRecognition) {
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+
+    recognition.onstart = () => {
+      setIsTranscribing(true);
+      setLiveTranscript("");
+    };
+
+    recognition.onresult = (event) => {
+      let interimTranscript = "";
+      let finalTranscript = "";
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        
+        if (event.results[i].isFinal) {
+          finalTranscript += transcript + " ";
+        } else {
+          interimTranscript += transcript;
+        }
+      }
+
+      setLiveTranscript(finalTranscript + interimTranscript);
+      setInput((prev) => prev + finalTranscript);
+    };
+
+    recognition.onerror = (event) => {
+      console.error("Speech recognition error:", event.error);
+      if (event.error !== "no-speech" && event.error !== "audio-capture") {
+        alert(`Transcription error: ${event.error}`);
+      }
+    };
+
+    recognition.onend = () => {
+      setIsTranscribing(false);
+    };
+
+    setRecognitionRef(recognition);
+  } else {
+    console.warn("Web Speech API not supported in this browser");
+  }
+
+  return () => {
+    if (recognitionRef) {
+      recognitionRef.abort();
+    }
+  };
 }, []);
 
 const fetchConversations = async () => {
@@ -373,7 +434,7 @@ setMessages([]);
 
 
 
-  /* ---------------- VOICE RECORD ---------------- */
+  /* ---------------- VOICE RECORD WITH LIVE TRANSCRIPTION ---------------- */
   const handleMicClick = async () => {
     if (!isRecording) {
       try {
@@ -398,12 +459,27 @@ setMessages([]);
 
         recorder.start();
         setIsRecording(true);
+        
+        // Start live transcription
+        if (recognitionRef) {
+          recognitionRef.start();
+        }
       } catch (err) {
         alert("Microphone permission denied");
       }
     } else {
       recorderRef.current.stop();
       setIsRecording(false);
+      
+      // Stop transcription
+      if (recognitionRef) {
+        recognitionRef.stop();
+      }
+      
+      // Finalize the transcribed text
+      if (liveTranscript.trim()) {
+        setInput((prev) => prev.trim());
+      }
     }
   };
 
@@ -928,6 +1004,20 @@ const handleDelete = async (id) => {
                   </div>
                 </div>
               )}
+
+            {/* Live Transcription Display */}
+            {isRecording && liveTranscript && (
+              <div className="live-transcript-chat">
+                <p className="transcript-label">Live Transcript:</p>
+                <p className="transcript-text">{liveTranscript}</p>
+              </div>
+            )}
+
+            {isTranscribing && !liveTranscript && isRecording && (
+              <div className="listening-indicator-chat">
+                <span className="pulse"></span> Listening...
+              </div>
+            )}
 
             <form
   className="chat-input"

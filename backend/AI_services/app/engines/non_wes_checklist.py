@@ -146,7 +146,7 @@ def generate_cma_checklist(data: dict) -> list:
     )
 
     prompt = f"""
-You are a clinical geneticist. Generate prenatal checklist from CMA report.
+You are a clinical geneticist. Provide a clinical significance summary from CMA report.
 
 CMA Report Data:
 - CNV Result: {data.get('cnv_result')}
@@ -162,26 +162,17 @@ Gene KB Context:
 
 {consanguinity_note}
 
-Return ONLY a JSON array, no markdown:
-[
-  {{
-    "task": "specific clinical action",
-    "priority": "High or Medium or Low",
-    "category": "Genetic Counseling or Testing or Monitoring or Referral or Follow-up",
-    "reason": "clinical reason",
-    "source": "Gene KB or Clinical Guideline"
-  }}
-]
-Generate 8-10 items. Return ONLY JSON array.
+Provide a concise clinical significance summary focusing on implications for pregnancy management. Avoid lists of tasks.
+
+Return ONLY a JSON object:
+{{
+  "clinical_significance": "summary text here"
+}}
 """
     result = _call_groq(prompt)
-    return result if result else [{
-        "task":     "Genetic counseling for CMA results",
-        "priority": "High",
-        "category": "Genetic Counseling",
-        "reason":   "CMA report requires clinical interpretation",
-        "source":   "Clinical Guideline"
-    }]
+    if result and isinstance(result, dict):
+        return result.get("clinical_significance", "No clinical significance noted.")
+    return "No clinical significance noted."
 
 
 # ─────────────────────────────────────────
@@ -206,7 +197,7 @@ def generate_scan_checklist(data: dict) -> list:
             kb_context.extend(kb[:2])
 
     prompt = f"""
-You are a fetal medicine specialist. Generate prenatal checklist from ultrasound scan.
+You are a fetal medicine specialist. Provide a clinical significance summary from ultrasound scan.
 
 Scan Data:
 - Scan Type: {data.get('scan_type')}
@@ -223,26 +214,17 @@ Scan Data:
 HPO Context: {json.dumps(hpo_context) if hpo_context else "None"}
 Gene KB Context: {json.dumps(kb_context) if kb_context else "None"}
 
-Return ONLY a JSON array, no markdown:
-[
-  {{
-    "task": "specific clinical action",
-    "priority": "High or Medium or Low",
-    "category": "Monitoring or Testing or Referral or Follow-up or Treatment",
-    "reason": "based on specific finding",
-    "source": "HPO Dataset or Gene KB or Clinical Guideline"
-  }}
-]
-Generate 10-12 items. Return ONLY JSON array.
+Provide a concise clinical significance summary focusing on implications for pregnancy management.
+
+Return ONLY a JSON object:
+{{
+  "clinical_significance": "summary text here"
+}}
 """
     result = _call_groq(prompt)
-    return result if result else [{
-        "task":     "Fetal medicine specialist referral",
-        "priority": "High",
-        "category": "Referral",
-        "reason":   "Ultrasound findings require specialist review",
-        "source":   "Clinical Guideline"
-    }]
+    if result and isinstance(result, dict):
+        return result.get("clinical_significance", "No clinical significance noted.")
+    return "No clinical significance noted."
 
 
 # ─────────────────────────────────────────
@@ -264,7 +246,7 @@ def generate_serum_checklist(data: dict) -> list:
             hpo_context.append({"finding": "nuchal translucency", **hpo})
 
     prompt = f"""
-You are an obstetrician. Generate prenatal checklist from serum screening.
+You are an obstetrician. Provide a clinical significance summary from serum screening.
 
 Serum Data:
 - Screen Type: {data.get('screen_type')}
@@ -280,23 +262,14 @@ Serum Data:
 
 HPO Context: {json.dumps(hpo_context) if hpo_context else "None"}
 
-Return ONLY a JSON array, no markdown:
-[
-  {{
-    "task": "specific clinical action",
-    "priority": "High or Medium or Low",
-    "category": "Screening or Testing or Monitoring or Referral",
-    "reason": "based on specific marker",
-    "source": "HPO Dataset or Clinical Guideline"
-  }}
-]
-Generate 8-10 items. Return ONLY JSON array.
+Provide a concise clinical significance summary focusing on implications for pregnancy management.
+
+Return ONLY a JSON object:
+{{
+  "clinical_significance": "summary text here"
+}}
 """
     result = _call_groq(prompt)
-    return result if result else [{
-        "task":     "Serum screening follow-up with specialist",
-        "priority": "High",
-        "category": "Screening",
-        "reason":   "Markers require clinical review",
-        "source":   "Clinical Guideline"
-    }]
+    if result and isinstance(result, dict):
+        return result.get("clinical_significance", "No clinical significance noted.")
+    return "No clinical significance noted."

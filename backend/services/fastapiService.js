@@ -2,7 +2,7 @@ const axios    = require("axios");
 const FormData = require("form-data");
 const fs       = require("fs");
 
-const FASTAPI_URL = process.env.FASTAPI_URL || "http://127.0.0.1:8000";
+const FASTAPI_URL = "http://127.0.0.1:8000";
 
 // ─────────────────────────────────────────────────────────────
 // HELPER — surface the real FastAPI error message upstream
@@ -38,7 +38,6 @@ function resolveMime(file) {
   const raw      = (file.mimetype || "").toLowerCase();
   const baseMime = raw.split(";")[0].trim();
 
-  // If multer couldn't detect type, infer from extension
   if (!baseMime || baseMime === "application/octet-stream") {
     const ext = (file.originalname || "").split(".").pop().toLowerCase();
     const extMap = {
@@ -67,13 +66,13 @@ function resolveMime(file) {
 // HELPER — pick FastAPI endpoint from MIME type
 // ─────────────────────────────────────────────────────────────
 function pickEndpoint(mime) {
-  if (mime === "application/pdf")                return "/extract-pdf";
-  if (mime.startsWith("audio/"))                 return "/extract-audio";
-  if (mime.startsWith("video/"))                 return "/extract-video";
-  if (mime === "text/plain")                     return "/extract-text-file";
-  if (mime.includes("word") || mime.includes("document")) return "/extract-document";
+  if (mime === "application/pdf")                                              return "/extract-pdf";
+  if (mime.startsWith("audio/"))                                               return "/extract-audio";
+  if (mime.startsWith("video/"))                                               return "/extract-video";
+  if (mime === "text/plain")                                                   return "/extract-text-file";
+  if (mime.includes("word") || mime.includes("document"))                     return "/extract-document";
   if (mime.includes("sheet") || mime.includes("excel") || mime === "text/csv") return "/extract-spreadsheet";
-  if (mime.includes("rtf"))                      return "/extract-document";
+  if (mime.includes("rtf"))                                                    return "/extract-document";
   return "/extract-pdf"; // fallback
 }
 
@@ -100,12 +99,22 @@ exports.extractFile = async (file, gestation) => {
   try {
     const res = await axios.post(`${FASTAPI_URL}${endpoint}`, form, {
       headers:          { ...form.getHeaders() },
-      timeout:          120_000,
+      timeout: endpoint === "/extract-video" ? 600_000 : 120_000,
       maxContentLength: Infinity,
       maxBodyLength:    Infinity,
     });
-    console.log(`[fastapiService] extractFile success:`, JSON.stringify(res.data).slice(0, 200));
+
+    console.log(`[fastapiService] extractFile success:`, JSON.stringify(res.data).slice(0, 300));
+
+    // ✅ FIX: Always return FastAPI response as-is.
+    // FastAPI's ReportDetector already correctly identifies WES/SCAN/CMA/SERUM.
+    // Never override report_type here — that was causing audio WES reports
+    // to be wrongly forced to SCAN when gene was UNKNOWN.
+    //
+    // If gene is UNKNOWN for a WES audio report, geneController will show
+    // a "gene not detected" warning and let the user retry — which is correct.
     return res.data;
+
   } catch (err) {
     console.error(`[fastapiService] extractFile error (${endpoint}):`, err.response?.data || err.message);
     fastapiError(err, "File extraction failed.");

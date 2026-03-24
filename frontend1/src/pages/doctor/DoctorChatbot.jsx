@@ -8,7 +8,7 @@ import {
   LucideEdit2, Trash2, ChevronDown, ChevronUp,
   Dna, Activity, Plus, MessageSquare,
   Menu, ChevronLeft, History, User, FileText,
-  Home, Briefcase,
+  Home, Briefcase, BarChart2, Heart,
 } from "lucide-react";
 
 /* ─── Bottom nav ─── */
@@ -183,23 +183,64 @@ const fileType = (name = "") => {
   return map[ext] || ext.toUpperCase() || "FILE";
 };
 
-const ChecklistCard = ({ onSubmit, checklistData, gene }) => {
+const ChecklistCard = ({ onSubmit, checklistData, gene, reportType }) => {
   const [checklist, setChecklist] = useState({});
   const [openCat,   setOpenCat]   = useState(0);
   const [submitted, setSubmitted] = useState(false);
 
-  const cats = [
+  const isNonWES = gene === "NOT_APPLICABLE" || gene === "UNKNOWN" || gene === "QUOTA_EXHAUSTED";
+
+  // ✅ For WES: regular checklist items
+  const cats = !isNonWES ? [
     ...(checklistData?.core_prenatal_findings?.length ? [{ title:"Core Findings",       items:checklistData.core_prenatal_findings }] : []),
     ...(checklistData?.supportive_findings?.length    ? [{ title:"Supportive Findings", items:checklistData.supportive_findings }]    : []),
     ...(checklistData?.negative_findings?.length      ? [{ title:"Negative Findings",   items:checklistData.negative_findings }]      : []),
-  ];
-  const total = cats.reduce((a,c)=>a+c.items.length, 0);
+  ] : [];
 
+  const clinicalFieldsMap = {
+    CMA: [
+      { label:"CNV Result", name:"cnv_result", opts:["Normal","Abnormal","Unknown"] },
+      { label:"Consanguinity", name:"consanguinity", opts:["Yes","No","Unknown"] },
+      { label:"Microdeletions", name:"microdeletions", opts:["Present","Not Present","Unknown"] },
+      { label:"ROH (Regions of Homozygosity)", name:"roh", opts:["Detected","Not Detected","Unknown"] },
+      { label:"Cardiac Findings", name:"cardiac_findings", opts:["Present","Not Present","Unknown"] },
+    ],
+    SCAN: [
+      { label:"Anomalies Detected", name:"anomalies", opts:["Present","Not Present","Unknown"] },
+      { label:"NT Measurement", name:"nt", opts:["Abnormal","Normal","Unknown"] },
+      { label:"Nasal Bone", name:"nasal_bone", opts:["Absent","Hypoplastic","Normal","Unknown"] },
+      { label:"Doppler Assessment", name:"doppler", opts:["Abnormal","Normal","Unknown"] },
+      { label:"Amniotic Fluid", name:"liquor", opts:["Reduced","Increased","Normal","Unknown"] },
+    ],
+    SERUM: [
+      { label:"NT Result", name:"nt_result", opts:["Abnormal","Normal","Unknown"] },
+      { label:"Nasal Bone", name:"nasal_bone", opts:["Absent","Hypoplastic","Normal","Unknown"] },
+      { label:"Ductus Venosus", name:"ductus_venosus", opts:["Abnormal","Normal","Unknown"] },
+      { label:"Tricuspid Regurgitation", name:"tricuspid", opts:["Present","Not Present","Unknown"] },
+    ],
+  };
+  const clinicalFields = clinicalFieldsMap[reportType] || [];
+  const clinicalTotal = clinicalFields.length;
+
+  // ✅ Non-WES: auto-submit when all clinical fields filled
   useEffect(() => {
-    if (Object.keys(checklist).length===total && total>0 && !submitted) {
-      setSubmitted(true); onSubmit(checklist, gene);
+    if (isNonWES && clinicalTotal > 0) {
+      const allFilled = clinicalFields.every(f => checklist[f.name]);
+      if (allFilled && !submitted) {
+        setSubmitted(true);
+        onSubmit(checklist, gene);
+      }
     }
-  }, [checklist, total, submitted]);
+  }, [checklist, clinicalTotal, submitted, isNonWES, clinicalFields]);
+
+  // ✅ WES: auto-submit when all checklist items filled
+  const total = cats.reduce((a,c)=>a+c.items.length, 0);
+  useEffect(() => {
+    if (!isNonWES && Object.keys(checklist).length===total && total>0 && !submitted) {
+      setSubmitted(true);
+      onSubmit(checklist, gene);
+    }
+  }, [checklist, total, submitted, isNonWES]);
 
   const ckCard = {
     background:T.white, border:`1px solid ${T.border}`,
@@ -218,9 +259,33 @@ const ChecklistCard = ({ onSubmit, checklistData, gene }) => {
   return (
     <div className="dc-check-card" style={ckCard}>
       <div style={{padding:"11px 14px", borderBottom:`1px solid ${T.border}`, fontSize:"11px", fontWeight:800, color:T.muted, letterSpacing:".8px", textTransform:"uppercase", display:"flex", alignItems:"center", gap:"6px"}}>
-        <Activity size={12} color={T.p600}/> Clinical Checklist
+        <Activity size={12} color={T.p600}/> {isNonWES ? "Clinical Findings" : "Clinical Checklist"}
       </div>
-      {cats.map((cat,ci) => (
+
+      {/* ✅ Non-WES: Clinical Findings Form */}
+      {isNonWES && (
+        <div style={{padding:"10px"}}>
+          {clinicalFields.map((field,fi) => (
+            <div key={fi} style={{marginBottom: fi === clinicalFields.length - 1 ? 0 : "10px", paddingBottom: fi === clinicalFields.length - 1 ? 0 : "10px", borderBottom: fi === clinicalFields.length - 1 ? "none" : `1px solid ${T.border}`}}>
+              <label style={{fontSize:"12px", fontWeight:700, color:T.text, display:"block", marginBottom:"6px"}}>{field.label}</label>
+              <div style={{display:"flex", gap:"6px", flexWrap:"wrap"}}>
+                {field.opts.map(opt => (
+                  <label key={opt} style={{display:"flex", alignItems:"center", gap:"4px", fontSize:"11px", color:T.muted, cursor:"pointer", fontWeight:500, padding:"4px 8px", borderRadius:"6px", background:checklist[field.name]===opt?T.p100:"#fafafa", border:`1px solid ${checklist[field.name]===opt?T.p200:T.border}`}}>
+                    <input type="radio" name={field.name} value={opt}
+                      checked={checklist[field.name]===opt}
+                      onChange={e=>setChecklist(p=>({...p,[field.name]:e.target.value}))}
+                      style={{margin:0}}
+                    /> {opt}
+                  </label>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ✅ WES: Regular Checklist Items */}
+      {!isNonWES && cats.map((cat,ci) => (
         <div key={ci}>
           <div className="dc-cat-hdr" onClick={()=>setOpenCat(openCat===ci?null:ci)}
             style={{padding:"9px 14px", display:"flex", justifyContent:"space-between", alignItems:"center", cursor:"pointer", borderBottom:`1px solid #f5f5fa`, transition:"background .15s"}}>
@@ -249,6 +314,29 @@ const ChecklistCard = ({ onSubmit, checklistData, gene }) => {
           )}
         </div>
       ))}
+
+      {/* ✅ Non-WES: Display-only Checklist Items */}
+      {isNonWES && checklistData && (
+        <>
+          {[
+            { title: "Clinical Action Items", key: "items" },
+          ].map((cat, ci) => (
+            <div key={ci}>
+              <div style={{padding:"9px 14px", borderTop: ci === 0 ? `1px solid ${T.border}` : "none", display:"flex", justifyContent:"space-between", alignItems:"center", background:T.p50}}>
+                <span style={{fontSize:"12px", fontWeight:700, color:T.p600}}>{cat.title}</span>
+              </div>
+              <div style={{padding:"8px 10px", display:"flex", flexDirection:"column", gap:"4px"}}>
+                {(checklistData[cat.key] || []).map((item,ii)=>(
+                  <div key={ii} style={{display:"flex", alignItems:"center", gap:"8px", padding:"6px 8px", fontSize:"12px", color:T.text}}>
+                    <span style={{width:"4px", height:"4px", borderRadius:"50%", background:T.p600, flexShrink:0}}/>
+                    <span>{item}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </>
+      )}
     </div>
   );
 };
@@ -283,14 +371,13 @@ export default function DoctorChatbot() {
     if (!currentChatId) return;
     (async () => {
       const res = await API.get(`/chat/messages/${currentChatId}`);
-setMessages(res.data.map(m => {
-  if (m.type==="analysis-complete") return {...m, gene:m.data?.genetic?.gene};
-  if (m.type==="checklist")         return {...m, checklistData:m.data};
-  if (m.type==="pp4")               return {...m, pp4Data:m.data};
-  // ── ADDED: restore file metadata from saved message ──
-  if (m.sender==="doctor" && m.fileName) return {...m, file:{name:m.fileName, size:m.fileSize}};
-  return m;
-}));
+      setMessages(res.data.map(m => {
+        if (m.type==="analysis-complete") return {...m, gene:m.data?.genetic?.gene, reportType:m.data?.report_type};
+        if (m.type==="checklist") return {...m, checklistData:m.data?.checklist || m.data, reportType:m.data?.metadata?.report_type};
+        if (m.type==="pp4") return {...m, pp4Data:m.data};
+        if (m.sender==="doctor" && m.fileName) return {...m, file:{name:m.fileName, size:m.fileSize}};
+        return m;
+      }));
     })();
   }, [currentChatId]);
 
@@ -342,18 +429,29 @@ setMessages(res.data.map(m => {
         const fd=new FormData();
         if (cF) fd.append("file",cF);
         if (cA) fd.append("file",cA,"recorded.webm");
-       fd.append("text",cI); fd.append("gestation",20); fd.append("conversationId",currentChatId);
-if (cF) { fd.append("fileName", cF.name); fd.append("fileSize", cF.size); }
+        fd.append("text",cI);
+        fd.append("gestation",20);
+        fd.append("conversationId",currentChatId);
+        if (cF) { fd.append("fileName", cF.name); fd.append("fileSize", cF.size); }
+        response = await API.post("/chat",fd);
       } else {
         response = await API.post("/chat",{text:cI,gestation:20,conversationId:currentChatId});
       }
       setMessages(p=>p.filter(m=>m.type!=="loading"));
-      const gene = response.data.data?.genetic?.gene;
+      const gene = response.data?.data?.genetic?.gene;
       if (!gene) { setMessages(p=>[...p,{sender:"ai",text:"Gene not detected in input."}]); setIsAnalyzing(false); return; }
-      setMessages(p=>[...p,{sender:"ai",type:"analysis-complete",gene}]);
-      const cr = await API.post("/checklist",{gene,conversationId:currentChatId});
-      if (!cr.data.success) { setMessages(p=>[...p,{sender:"ai",text:cr.data.message}]); setIsAnalyzing(false); return; }
-      setMessages(p=>[...p,{sender:"ai",type:"checklist",checklistData:cr.data.data.checklist,gene}]);
+      
+      // ✅ Extract report type for non-WES files
+      const reportType = response.data?.data?.report_type;
+      
+      setMessages(p=>[...p,{sender:"ai",type:"analysis-complete",gene,reportType}]);
+      const checklistPayload = { gene, conversationId:currentChatId };
+      if (reportType) checklistPayload.reportType = reportType;
+      
+      const cr = await API.post("/checklist", checklistPayload);
+      if (!cr.data.success) { setMessages(p=>[...p,{sender:"ai",text:cr.data.message||"Checklist generation failed."}]); setIsAnalyzing(false); return; }
+      const checklistData = cr.data.data?.checklist || cr.data.data;
+      setMessages(p=>[...p,{sender:"ai",type:"checklist",checklistData,gene,reportType}]);
     } catch(err) {
       setMessages(p=>p.filter(m=>m.type!=="loading"));
       setMessages(p=>[...p,{sender:"ai",text:err.response?.data?.message||"Gene not detected in dataset."}]);
@@ -384,19 +482,58 @@ if (cF) { fd.append("fileName", cF.name); fd.append("fileSize", cF.size); }
     } else { recorderRef.current.stop(); setIsRecording(false); }
   };
 
-  const handleChecklistSubmit = async (data, gene) => {
+  const handleChecklistSubmit = async (data, gene, reportType) => {
     setMessages(p=>[...p,{sender:"doctor",type:"checklist-summary",data}]);
     try { await API.post("/chat/checklist-summary",{conversationId:currentChatId,selections:data}); } catch {}
-    setTimeout(()=>calcPP4(data,gene),500);
+    setTimeout(()=>calcPP4(data,gene,reportType),500);
   };
 
-  const calcPP4 = async (data, gene) => {
+  const calcPP4 = async (data, gene, reportType) => {
+    const isNonWES = gene === "NOT_APPLICABLE" || gene === "UNKNOWN" || gene === "QUOTA_EXHAUSTED";
+
+    // ✅ Non-WES: Clinical Risk Scoring
+    if (isNonWES) {
+      try {
+        // Map doctor's selections to clinical findings format (same as GeneAnalysis)
+        const clinicalFindings = {};
+        if (reportType === "CMA") {
+          clinicalFindings.cnv_result = (data.cnv_result || "").toLowerCase();
+          clinicalFindings.consanguinity = data.consanguinity === "Yes" ? "yes" : "no";
+          clinicalFindings.microdeletions = data.microdeletions === "Present" ? "detected" : "none";
+          clinicalFindings.roh = data.roh === "Detected" ? "detected" : "none";
+          clinicalFindings.cardiac_findings = data.cardiac_findings === "Present" ? ["cardiac finding"] : [];
+        } else if (reportType === "SCAN") {
+          clinicalFindings.anomalies = data.anomalies === "Present" ? ["anomaly"] : [];
+          clinicalFindings.nt = data.nt === "Abnormal" ? "abnormal" : "normal";
+          clinicalFindings.nasal_bone = data.nasal_bone ? data.nasal_bone.toLowerCase().replace(/\s+/g, "_") : "normal";
+          clinicalFindings.doppler = data.doppler === "Abnormal" ? "abnormal" : "normal";
+          clinicalFindings.liquor = data.liquor ? data.liquor.toLowerCase().replace(/\s+/g, "_") : "normal";
+        } else if (reportType === "SERUM") {
+          clinicalFindings.nt_result = data.nt_result === "Abnormal" ? "abnormal" : "normal";
+          clinicalFindings.nasal_bone = data.nasal_bone ? data.nasal_bone.toLowerCase().replace(/\s+/g, "_") : "normal";
+          clinicalFindings.ductus_venosus = data.ductus_venosus === "Abnormal" ? "abnormal" : "normal";
+          clinicalFindings.tricuspid = data.tricuspid === "Present" ? "yes" : "no";
+        }
+
+        const r = await API.post("/pp4",{gene,gestation:20,extracted_data:clinicalFindings,reportType,conversationId:currentChatId});
+        setMessages(p=>[...p,{sender:"ai",type:"clinical-risk",gene,reportType,riskData:r.data.data}]);
+      } catch (e) {
+        console.error("Clinical risk calculation failed:", e);
+        setMessages(p=>[...p,{sender:"ai",text:"Clinical risk calculation failed: " + (e.response?.data?.message || e.message)}]);
+      }
+      return;
+    }
+
+    // ✅ WES: PP4 Scoring
     try {
       const sel={core:{},supportive:{},negative:{}};
       Object.entries(data).forEach(([k,v])=>{sel.core[k]=v;});
       const r = await API.post("/pp4",{gene,gestation:20,selections:sel,conversationId:currentChatId});
       setMessages(p=>[...p,{sender:"ai",type:"pp4",gene,pp4Data:r.data.data}]);
-    } catch {}
+    } catch (e) {
+      console.error("PP4 calculation failed:", e);
+      setMessages(p=>[...p,{sender:"ai",text:"PP4 calculation failed: " + (e.response?.data?.message || e.message)}]);
+    }
   };
 
   const handleRename = async (id) => {
@@ -508,7 +645,7 @@ if (cF) { fd.append("fileName", cF.name); fd.append("fileSize", cF.size); }
                 <CheckCircle size={12}/> ANALYSIS COMPLETE
               </div>
               <div style={{padding:"8px 14px",background:T.p50,borderBottom:`1px solid ${T.p200}`,fontSize:"13px",fontWeight:700,color:T.p600,display:"flex",alignItems:"center",gap:"6px"}}>
-                <Dna size={12}/> Gene: {msg.gene}
+                <Dna size={12}/> {msg.reportType ? `Report: ${msg.reportType}` : `Gene: ${msg.gene}`}
               </div>
               <div style={{padding:"10px 14px",fontSize:"13px",color:T.muted}}>
                 Initial gene analysis complete. Proceed with the clinical checklist below.
@@ -518,7 +655,7 @@ if (cF) { fd.append("fileName", cF.name); fd.append("fileSize", cF.size); }
 
           {/* ── AI: checklist ── */}
           {msg.type==="checklist" && (
-            <ChecklistCard onSubmit={d=>handleChecklistSubmit(d,msg.gene)} checklistData={msg.checklistData} gene={msg.gene}/>
+            <ChecklistCard onSubmit={(d)=>handleChecklistSubmit(d,msg.gene,msg.reportType)} checklistData={msg.checklistData} gene={msg.gene} reportType={msg.reportType}/>
           )}
 
           {/* ── Doctor: checklist summary ── */}
@@ -534,6 +671,117 @@ if (cF) { fd.append("fileName", cF.name); fd.append("fileSize", cF.size); }
               ))}
             </div>
           )}
+
+          {/* ── AI: PP4 result ── */}
+          {/* ── AI: clinical risk (non-WES) ── */}
+          {msg.type==="clinical-risk" && (()=>{
+            const risk = msg.riskData;
+            const finalScore = risk?.pp4_result?.final_score ?? risk?.final_score ?? 0;
+            const rawScore = risk?.pp4_result?.raw_score ?? risk?.raw_score ?? 0;
+            const multiplier = risk?.pp4_result?.multiplier ?? risk?.multiplier ?? 1;
+            const riskLevel = risk?.summaries?.risk_level ?? risk?.risk_level ?? "Unknown";
+            const scoreType = risk?.pp4_result?.score_type ?? "Clinical Score";
+            const summary = risk?.summaries?.doctor_summary ?? risk?.doctor_summary ?? "";
+            
+            // Parse summary for interpretation and recommended action
+            const interp = summary.match(/Interpretation:(.*?)(Recommended Action:|$)/s);
+            const recom = summary.match(/Recommended Action:(.*)/s);
+            
+            // Color coding based on risk level
+            const riskStyle={
+              "Low Risk":     {bg:"rgba(34,197,94,.08)",bd:"1px solid rgba(34,197,94,.3)",c:"#22c55e"},
+              "Moderate Risk":{bg:"rgba(245,158,11,.08)",bd:"1px solid rgba(245,158,11,.3)",c:"#f59e0b"},
+            }[riskLevel]||{bg:"rgba(239,68,68,.08)",bd:"1px solid rgba(239,68,68,.3)",c:"#ef4444"};
+            
+            // Score bar percentage (0-10 scale)
+            const scoreBarWidth = Math.min(100, (finalScore / 10) * 100);
+            
+            return (
+              <div className="dc-pp4-panel" style={{width:"100%",maxWidth:"560px"}}>
+                <div style={{background:T.white,border:`1px solid ${T.border}`,borderRadius:"16px",overflow:"hidden",boxShadow:"0 8px 32px rgba(0,0,0,.08)"}}>
+                  {/* Header */}
+                  <div style={{padding:"14px 20px",background:`linear-gradient(135deg,${T.p700},#9333ea)`,color:"#fff",fontSize:"13px",fontWeight:800,display:"flex",alignItems:"center",gap:"8px"}}>
+                    <BarChart2 size={14}/>
+                    <span>Clinical Risk Score</span>
+                    <span style={{fontSize:"11px",fontWeight:600,marginLeft:"auto",opacity:0.8}}>Clinical assessment based on {msg.reportType || msg.gene} findings</span>
+                  </div>
+                  
+                  {/* Score boxes: Raw | Multiplier | Final */}
+                  <div style={{display:"flex",gap:"10px",padding:"16px"}}>
+                    <div style={{flex:1,background:T.p50,border:`1px solid ${T.p200}`,borderRadius:"12px",padding:"12px 8px",textAlign:"center"}}>
+                      <div style={{fontSize:"22px",fontWeight:900,color:T.p600,marginBottom:"2px"}}>{rawScore}</div>
+                      <div style={{fontSize:"10px",color:T.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:".4px"}}>Raw Score</div>
+                    </div>
+                    <div style={{flex:1,background:T.p50,border:`1px solid ${T.p200}`,borderRadius:"12px",padding:"12px 8px",textAlign:"center"}}>
+                      <div style={{fontSize:"22px",fontWeight:900,color:T.p600,marginBottom:"2px"}}>×{multiplier}</div>
+                      <div style={{fontSize:"10px",color:T.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:".4px"}}>Multiplier</div>
+                    </div>
+                    <div style={{flex:1,background:`linear-gradient(135deg,${T.p600},${T.p700})`,border:`1px solid ${T.p700}`,borderRadius:"12px",padding:"12px 8px",textAlign:"center"}}>
+                      <div style={{fontSize:"22px",fontWeight:900,color:"#fff",marginBottom:"2px"}}>{finalScore}</div>
+                      <div style={{fontSize:"10px",color:"rgba(255,255,255,.7)",fontWeight:700,textTransform:"uppercase",letterSpacing:".4px"}}>Final Score</div>
+                    </div>
+                  </div>
+                  
+                  {/* Score bar visualization */}
+                  <div style={{padding:"0 16px 12px"}}>
+                    <div style={{marginBottom:"6px",display:"flex",justifyContent:"space-between",fontSize:"10px",color:T.muted,fontWeight:600}}>
+                      <span>0 — Low</span>
+                      <span>5 — Moderate</span>
+                      <span>10 — High</span>
+                    </div>
+                    <div style={{height:"6px",background:T.light,borderRadius:"3px",overflow:"hidden"}}>
+                      <div style={{
+                        height:"100%",
+                        width:`${scoreBarWidth}%`,
+                        background:`linear-gradient(90deg,#22c55e,#f59e0b,#ef4444)`,
+                        transition:"width .4s ease"
+                      }}/>
+                    </div>
+                  </div>
+                  
+                  {/* Badges */}
+                  <div style={{display:"flex",gap:"8px",padding:"0 16px 14px",flexWrap:"wrap"}}>
+                    <div style={{padding:"5px 11px",borderRadius:"16px",fontSize:"11px",fontWeight:700,background:T.p50,border:`1px solid ${T.p200}`,color:T.p600}}>
+                      <Activity size={11} style={{display:"inline",marginRight:"4px"}}/>{scoreType.replace(/_/g," ")}
+                    </div>
+                    <div style={{padding:"5px 11px",borderRadius:"16px",fontSize:"11px",fontWeight:700,background:riskStyle.bg,border:riskStyle.bd,color:riskStyle.c}}>
+                      {riskLevel}
+                    </div>
+                  </div>
+                  
+                  {/* Clinical Summary */}
+                  <div style={{margin:"0 16px 16px",background:"#fafafa",border:`1px solid ${T.border}`,borderRadius:"12px",padding:"16px",lineHeight:1.7}}>
+                    {/* Main Summary */}
+                    <div style={{marginBottom:"14px"}}>
+                      <div style={{fontSize:"11px",fontWeight:800,color:T.p600,letterSpacing:"1.2px",textTransform:"uppercase",marginBottom:"10px",display:"flex",alignItems:"center",gap:"7px"}}>
+                        <Heart size={14} color={T.p600}/> Clinical Summary
+                      </div>
+                      <div style={{fontSize:"13px",color:T.text,lineHeight:1.7,fontWeight:500}}>{summary.split("Interpretation:")[0]?.trim() || "Clinical assessment completed."}</div>
+                    </div>
+                    
+                    {/* Interpretation */}
+                    {interp?.[1]?.trim() && (
+                      <div style={{marginBottom:"14px",paddingTop:"12px",paddingBottom:"12px",borderTop:`1px solid ${T.border}`,borderBottom:`1px solid ${T.border}`}}>
+                        <div style={{fontSize:"11px",fontWeight:800,color:T.p600,letterSpacing:"1.2px",textTransform:"uppercase",marginBottom:"8px"}}>📋 Interpretation</div>
+                        <div style={{fontSize:"13px",color:T.text,lineHeight:1.7,fontWeight:500}}>{interp[1].trim()}</div>
+                      </div>
+                    )}
+                    
+                    {/* Recommended Action */}
+                    {recom?.[1]?.trim() && (
+                      <div style={{paddingTop:"12px"}}>
+                        <div style={{fontSize:"11px",fontWeight:800,color:riskStyle.c,letterSpacing:"1.2px",textTransform:"uppercase",marginBottom:"8px",display:"flex",alignItems:"center",gap:"6px"}}>
+                          <span style={{width:"3px",height:"3px",background:riskStyle.c,borderRadius:"50%",display:"inline-block"}}/>
+                          🎯 Recommended Action
+                        </div>
+                        <div style={{fontSize:"13px",color:T.text,lineHeight:1.7,fontWeight:500,paddingLeft:"8px",borderLeft:`3px solid ${riskStyle.c}`}}>{recom[1].trim()}</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* ── AI: PP4 result ── */}
           {msg.type==="pp4" && (()=>{
