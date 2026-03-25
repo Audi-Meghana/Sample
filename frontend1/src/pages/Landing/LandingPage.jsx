@@ -1,5 +1,5 @@
-/* eslint-disable react-hooks/rules-of-hooks */
-/* eslint-disable no-undef */
+ 
+ 
 /* eslint-disable no-unused-vars */
 import { useState, useEffect } from "react";
 import Navbar from "../../components/landing/Navbar";
