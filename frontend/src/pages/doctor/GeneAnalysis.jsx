@@ -548,9 +548,9 @@ const handleUploadToBackend = async () => {
       formData.append("file", file);
     }
 
-    if (audioBlob) {
-      formData.append("file", audioBlob, "voice.webm");
-    }
+    if (uploadMode !== "voice" && audioBlob) {
+  formData.append("file", audioBlob);
+}
 
     if (submittedText) {
       formData.append("type", "text");

@@ -199,10 +199,15 @@ class ReportDetector:
         if any(k in t for k in wes_spoken_strong):
             return "WES"
 
-        # ─── Gene heuristic — 2+ gene-like uppercase tokens ──────────────
-        # e.g. "L1CAM", "FGFR3" appearing in audio transcript → WES
-        # BUT: must be stricter to avoid matching patient names, hospital names, etc.
-        gene_like = re.findall(r'\b[A-Z]{2,8}\d*\b', text)
+        # ─── Gene details strong spoken clue ────────────────────────────
+        if "gene details" in t or "gene detail" in t:
+            return "WES"
+
+        # ─── Gene heuristic — gene-like uppercase+digit tokens ──────────────
+        # e.g. "L1CAM", "FGFR3", "11CAM" appearing in audio transcript → WES
+        # Note: 11CAM can appear from speech normalization edge case
+        t_upper = text.upper()
+        gene_like = re.findall(r'\b(?:[A-Z]*\d+[A-Z]+|[A-Z]+\d+[A-Z]*)\b', t_upper)
         non_gene = {
             # Medical abbreviations
             "NT", "BPD", "FHR", "CRL", "EFW", "MOM", "DNA", "RNA",
@@ -240,9 +245,14 @@ class ReportDetector:
             and any(c.isdigit() for c in g)  # Must have at least one digit
         ]
         
-        # Only trigger WES if we have 2+ strong gene candidates with digits
+        # Trigger WES for strong gene candidates
         if len(gene_candidates) >= 2:
             print(f"DEBUG ReportDetector: gene heuristic matched {gene_candidates[:5]} → WES")
+            return "WES"
+
+        # Also allow single strong gene if explicit gene context present
+        if len(gene_candidates) == 1 and ("gene" in t or "gene details" in t):
+            print(f"DEBUG ReportDetector: gene heuristic single candidate {gene_candidates} + gene context → WES")
             return "WES"
 
         # ─── SCAN — checked AFTER all WES checks ─────────────────────────

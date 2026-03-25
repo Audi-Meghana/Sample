@@ -9,7 +9,7 @@ import joblib
 from app.engines.ai_service import ClinicalAIService
 from app.engines.clinical_risk_engine import calculate_clinical_risk_score
 
-
+import re
 app = FastAPI(title="Prenatal AI Copilot")
 
 model_data = joblib.load("clinical_ai_model.pkl")
@@ -39,23 +39,36 @@ MEDICAL_KEYWORDS = [
     # Gene name pattern — e.g. "L1CAM", "FGFR3"
     # (checked separately below)
 ]
+def dynamic_normalize(text: str) -> str:
+    def fix(match):
+        return re.sub(r'\s+', '', match.group()).upper()
+    return re.sub(r'\b(?:[A-Za-z]\s+){2,}[A-Za-z0-9]\b', fix, text)
 
 def _is_medical_speech(text: str) -> bool:
     """
-    Returns True if the transcribed text contains any recognizable
-    medical / report-related content.
+    Returns True if the transcribed text contains recognizable
+    medical / report-related content with sufficient context.
     Returns False if it looks like unrelated/gibberish speech.
     """
     t = text.lower()
 
-    # 1️⃣ Check plain medical keywords
-    if any(k in t for k in MEDICAL_KEYWORDS):
+    # 1️⃣ Check for gene-like tokens (e.g. "L1CAM", "FGFR3", "COL4A1")
+    import re
+    gene_like = re.findall(r'\b[A-Z]{1,4}\d+[A-Z]*\b', text)  # Require uppercase for genes
+    if gene_like:
         return True
 
-    # 2️⃣ Check for gene-like tokens (e.g. "L1CAM", "FGFR3", "COL4A1")
-    import re
-    gene_like = re.findall(r'\b[A-Za-z]{1,4}\d+[A-Za-z]*\b', text)
-    if gene_like:
+    # 2️⃣ Check for specific medical report keywords with context
+    report_keywords = ["report", "analysis", "sequencing", "scan", "ultrasound", "serum", "screen"]
+    medical_terms = ["gene", "variant", "mutation", "fetal", "prenatal", "chromosome"]
+
+    has_report = any(k in t for k in report_keywords)
+    has_medical = any(k in t for k in medical_terms)
+
+    # Require at least a report keyword OR multiple medical terms
+    if has_report:
+        return True
+    if t.count("gene") >= 2 or (has_medical and len(text.split()) > 10):
         return True
 
     return False
@@ -221,10 +234,31 @@ async def extract_video(
 
 @app.post("/extract-text")
 async def extract_text_input(request: TextInputRequest):
-    if len(request.text.strip()) < 20:
+    text = request.text or ""
+    if len(text.strip()) < 20:
         raise HTTPException(status_code=400, detail="Text too short.")
 
-    return ai.extract_structured(request.text, request.gestation, source="text")
+    # For voice/text content that is not medical, return explicit warning
+    if not _is_medical_speech(text):
+        return {
+            "warning": "unrecognized_speech",
+            "report_type": None,
+            "raw_text": text,
+            "message": (
+                "Text input does not appear to contain medical gene/variant content. "
+                "Please provide a valid prenatal genetic report or gene finding."
+            ),
+            "genetic": {
+                "gene": "UNKNOWN",
+                "variant": None,
+                "confidence": 0.0,
+                "status": "unrecognized"
+            },
+            "checklist": [],
+            "suggested_phenotypes": []
+        }
+
+    return ai.extract_structured(text, request.gestation, source="text")
 
 
 # =========================
@@ -407,6 +441,12 @@ async def extract_text_file(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Text file extraction failed: {str(e)}")
+
+
+
+
+
+
 
 
 # =========================

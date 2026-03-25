@@ -38,7 +38,6 @@ exports.handleChat = async (req, res) => {
         voice_transcription,
         gestation
       );
-
       // Delete uploaded file if it exists (no longer needed)
       if (req.file) {
         try {
@@ -49,6 +48,15 @@ exports.handleChat = async (req, res) => {
         } catch (deleteErr) {
           console.warn("Could not delete file:", req.file.path, deleteErr.message);
         }
+      }
+
+      // Unrecognized / non-medical voice transcript
+      if (result?.warning === "unrecognized_speech") {
+        return res.status(200).json({
+          success: false,
+          message: result.message || "Unrecognized medical content",
+          data: result
+        });
       }
 
       // Save doctor message

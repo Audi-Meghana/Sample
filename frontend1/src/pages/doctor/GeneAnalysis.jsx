@@ -15,6 +15,10 @@ import {
   ChevronRight, BarChart2, Heart, Eye
 } from "lucide-react";
 
+
+
+
+
 /* ═══════════════════════════════════════
    STYLES
 ═══════════════════════════════════════ */
@@ -590,6 +594,9 @@ audio { width:100%; border-radius:10px; height:36px; }
 }
 `;
 
+
+
+
 const ALLOWED = [
   "application/pdf",
   "audio/mpeg","audio/mp3","audio/wav","audio/webm",
@@ -756,8 +763,8 @@ export default function GeneAnalysis() {
   const fileInputRef = useRef();
   const navigate = useNavigate();
   const [liveTranscript, setLiveTranscript] = useState("");
-const [interimText,    setInterimText]    = useState("");
-const recognitionRef = useRef(null);
+  const [interimText,    setInterimText]    = useState("");
+  const recognitionRef = useRef(null);
 
   const resetState = () => {
     setFile(null);
@@ -770,9 +777,9 @@ const recognitionRef = useRef(null);
     setGeneData(null);
     setBackendChecklist([]);
     setChecklist({});
-      setLiveTranscript("");   // ✅ add this
-  setInterimText("");      // ✅ add this
-  setAudioBlob(null);      // ✅ add this
+    setLiveTranscript("");
+    setInterimText("");
+    setAudioBlob(null);      // ✅ add this
   };
 
   const currentStep = !selectedCase ? 1
@@ -830,6 +837,7 @@ const recognitionRef = useRef(null);
     setFile(f);
   };
 
+  
   /* ── VOICE ── */
  const handleMic = async () => {
   if (!isRecording) {
@@ -858,7 +866,7 @@ const recognitionRef = useRef(null);
       setIsRecording(true);
       setLiveTranscript(""); // Reset transcript on new recording
       
-      // START live transcription AFTER MediaRecorder
+      // START live transcription for display
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (SpeechRecognition) {
         const rec = new SpeechRecognition();
@@ -904,8 +912,7 @@ const recognitionRef = useRef(null);
   }
 };
 
-  /* ── UPLOAD + ANALYZE ── */
- const handleUpload = async () => {
+const handleUpload = async () => {
   if (!selectedCase) { alert("Select a case first."); return; }
   if (!file && !audioBlob && !submittedText) { alert("Please provide input."); return; }
   
@@ -945,6 +952,13 @@ const recognitionRef = useRef(null);
     });
     const result = res.data;
     console.log("[GeneAnalysis] Upload result:", JSON.stringify(result).slice(0, 500));
+    
+    // ✅ Handle unrecognized speech error
+    if (result.warning === "unrecognized_speech") {
+      alert(result.message || "Audio did not contain recognizable medical report content. Please speak clearly and mention the report type and gene name.");
+      setLoading(false);
+      return;
+    }
     
     await API.put(`/cases/${selectedCase}/status`, { status:"Under Review" });
  
@@ -1046,7 +1060,6 @@ const recognitionRef = useRef(null);
     alert(e.response?.data?.message || "Analysis failed. Please try again.");
   } finally { setLoading(false); }
 };
- 
 
   /* ── PP4 CALCULATE ── */
  const handleCalculate = async () => {
