@@ -63,7 +63,8 @@ class ClinicalAIService:
         if self.report_detector:
             report_type = self.report_detector.detect(text, source=source)
         else:
-            report_type = "WES" if source != "audio" and source != "video" else "SCAN"
+            # ✅ FIX: PDF/audio/video default to SCAN; text input defaults to WES
+            report_type = "SCAN" if source in ("audio", "video", "pdf") else "WES"
 
         print(f"DEBUG report_type: {report_type} (source: {source})")
 
