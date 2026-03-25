@@ -1,3 +1,7 @@
+/* eslint-disable react-hooks/exhaustive-deps */
+/* eslint-disable no-empty */
+ 
+/* eslint-disable no-unused-vars */
 import { useState, useRef, useEffect } from "react";
 import Sidebar from "../../components/doctor/Sidebar";
 import API from "../../services/api";
@@ -531,6 +535,7 @@ export default function DoctorChatbot() {
       setIsRecording(false);
       recognitionRef.current?.stop();
       if (isMobile) setPanelOpen(false);
+     
     } catch {}
   };
 

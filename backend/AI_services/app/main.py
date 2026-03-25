@@ -4,7 +4,7 @@ from typing import Dict, Any
 from app.engines.clinical_ai_core import ClinicalAICore
 from utils.pdf_extractor import extract_text
 from utils.audio_extractor import extract_audio_text, extract_video_text
-from utils.document_extractor import extract_text_from_document
+from utils.image_extractor import extract_text_from_image
 import joblib
 from app.engines.ai_service import ClinicalAIService
 from app.engines.clinical_risk_engine import calculate_clinical_risk_score
@@ -489,3 +489,64 @@ async def extract_spreadsheet(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Spreadsheet extraction failed: {str(e)}")
+
+
+# =========================
+# 1️⃣1️⃣ Image Upload (JPEG, PNG, GIF, BMP, TIFF, WebP)
+# =========================
+
+@app.post("/extract-image")
+async def extract_image(
+    file: UploadFile = File(...),
+    gestation: int | None = None
+):
+    try:
+        # Check file extension
+        allowed_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp']
+        filename_lower = file.filename.lower() if file.filename else ""
+
+        if not any(filename_lower.endswith(ext) for ext in allowed_extensions):
+            raise HTTPException(status_code=400, detail=f"Unsupported image format. Supported: {', '.join(allowed_extensions)}")
+
+        file_bytes = await file.read()
+
+        if not file_bytes:
+            raise HTTPException(status_code=400, detail="Image file is empty.")
+
+        text = extract_text_from_image(file_bytes, file.filename)
+
+        if not text or len(text.strip()) < 10:
+            # Return a result indicating no gene detected in the image
+            return {
+                "report_type": "UNKNOWN",
+                "error": "No readable text found in image. Please ensure the image contains clear, readable text.",
+                "genetic": {
+                    "gene":       "NOT_DETECTED",
+                    "variant":    None,
+                    "confidence": 0.0,
+                    "status":     "no_gene_detected"
+                },
+                "suggested_phenotypes": [],
+                "checklist": []
+            }
+
+        print(f"DEBUG extracted image text length: {len(text)}")
+
+        result = ai.extract_structured(text, gestation, source="image")
+
+        return result if result else {
+            "report_type": "UNKNOWN",
+            "genetic": {
+                "gene":       "NOT_DETECTED",
+                "variant":    None,
+                "confidence": 0.0,
+                "status":     "no_gene_detected"
+            },
+            "suggested_phenotypes": [],
+            "checklist": []
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Image extraction failed: {str(e)}")

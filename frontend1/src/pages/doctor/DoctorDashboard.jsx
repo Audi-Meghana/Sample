@@ -9,7 +9,7 @@ import { useNavigate } from "react-router-dom";
 import {
   Eye, Activity, Calendar, PlusCircle,
   ChevronRight, User, FolderOpen,
-  BarChart3, Clock, CheckCircle, Upload, Sparkles,
+  BarChart3, Clock, CheckCircle, Upload, Sparkles, RefreshCw,
 } from "lucide-react";
 
 /* ═══════════════════════════════════════════════════
@@ -152,6 +152,8 @@ const CSS = `
 .dr-vbtn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:9px;background:#fff;color:#5a4bb5;border:1.5px solid #d5cff2;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;font-family:'Figtree',sans-serif;transition:all .18s ease;box-shadow:0 1px 4px rgba(109,90,205,.08);}
 .dr-vbtn:hover{background:#6d5acd;color:#fff;border-color:#6d5acd;box-shadow:0 4px 14px rgba(109,90,205,.25);transform:translateY(-1px);}
 .dr-vbtn:active{transform:scale(.97);}
+.dr-recheck-btn{background:#10b981 !important;color:#fff !important;border-color:#10b981 !important;}
+.dr-recheck-btn:hover{background:#059669 !important;border-color:#059669 !important;box-shadow:0 4px 14px rgba(16,185,129,.25) !important;}
 .dr-btn-p{display:inline-flex;align-items:center;gap:6px;background:linear-gradient(135deg,#6d5acd,#8b7ee8);color:#fff;border:none;padding:10px 18px;border-radius:11px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 4px 13px rgba(109,90,205,.22);white-space:nowrap;font-family:'Figtree',sans-serif;transition:all .25s;}
 .dr-btn-p:hover{transform:translateY(-2px);box-shadow:0 8px 20px rgba(109,90,205,.3);}
 .dr-btn-g{display:inline-flex;align-items:center;gap:5px;background:#f6f4fe;color:#6d5acd;border:1px solid #d8d2f5;padding:7px 12px;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;font-family:'Figtree',sans-serif;transition:all .2s;}
@@ -299,6 +301,10 @@ export default function DoctorDashboard() {
       const d   = res.data;
       setSelectedCase(d?.case ?? d?.data ?? d);
     } catch(e) { console.error(e); alert("Failed to load case"); }
+  };
+
+  const handleRecheck = (caseId) => {
+    navigate(`/gene-analysis?caseId=${caseId}&recheck=true`);
   };
 
   const NameDisplay = () => nameLoaded
@@ -456,10 +462,15 @@ export default function DoctorDashboard() {
                               )}
                             </div>
                           </div>
-                          <div style={{ flexShrink:0 }} onClick={e => e.stopPropagation()}>
+                          <div style={{ flexShrink:0, display:"flex", gap:"8px" }} onClick={e => e.stopPropagation()}>
                             <button className="dr-vbtn" onClick={() => handleView(c._id)}>
                               <Eye size={13}/> View Details
                             </button>
+                            {c.status === "Completed" && (
+                              <button className="dr-vbtn dr-recheck-btn" onClick={() => handleRecheck(c._id)}>
+                                <RefreshCw size={13}/> Recheck
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -477,10 +488,15 @@ export default function DoctorDashboard() {
                           </div>
                           <div className="dr-mcase-name">{c.patientName}</div>
                         </div>
-                        <div style={{ flexShrink:0 }} onClick={e => e.stopPropagation()}>
+                        <div style={{ flexShrink:0, display:"flex", flexDirection:"column", gap:"6px" }} onClick={e => e.stopPropagation()}>
                           <button className="dr-vbtn" onClick={() => handleView(c._id)}>
                             <Eye size={12}/> View
                           </button>
+                          {c.status === "Completed" && (
+                            <button className="dr-vbtn dr-recheck-btn" onClick={() => handleRecheck(c._id)}>
+                              <RefreshCw size={12}/> Recheck
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))}

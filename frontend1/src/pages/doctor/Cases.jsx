@@ -7,7 +7,7 @@ import { useNavigate } from "react-router-dom";
 import {
   Plus, Search, Eye,
   ChevronLeft, ChevronRight, FileText, X,
-  Activity, User, Filter, Trash2, AlertCircle, CheckCircle2,
+  Activity, User, Filter, Trash2, AlertCircle, CheckCircle2, RefreshCw,
 } from "lucide-react";
 
 const CSS = `
@@ -103,6 +103,10 @@ const CSS = `
 .cp-del-btn{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:9px;background:#fff;color:#dc2626;border:1.5px solid #fecaca;cursor:pointer;flex-shrink:0;transition:all .18s ease;box-shadow:0 1px 4px rgba(220,38,38,.06);}
 .cp-del-btn:hover{background:#ef4444;color:#fff;border-color:#ef4444;box-shadow:0 4px 14px rgba(220,38,38,.25);transform:translateY(-1px);}
 .cp-del-btn:active{transform:scale(.97);}
+.cp-recheck-btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:9px;background:#10b981;color:#fff;border:1.5px solid #10b981;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;font-family:'Figtree',sans-serif;transition:all .18s ease;box-shadow:0 1px 4px rgba(16,185,129,.08);}
+.cp-recheck-btn:hover{background:#059669;border-color:#059669;box-shadow:0 4px 14px rgba(16,185,129,.25);transform:translateY(-1px);}
+.cp-recheck-btn:active{transform:scale(.97);}
+.cp-recheck-btn-mobile{display:inline-flex;align-items:center;gap:4px;padding:6px 10px;border-radius:7px;font-size:11px;}
 
 /* ── MOBILE CASE ROW ── */
 .cp-mcase{background:#fbfaff;border:1.5px solid #ebe7f8;border-radius:14px;padding:13px 14px;margin-bottom:9px;display:flex;align-items:center;justify-content:space-between;gap:12px;position:relative;overflow:hidden;transition:all .18s;}
@@ -466,6 +470,10 @@ export default function Cases() {
     } catch(e) { console.error(e); alert("Failed to load case"); }
   };
 
+  const handleRecheck = (caseId) => {
+    navigate(`/gene-analysis?caseId=${caseId}&recheck=true`);
+  };
+
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -627,6 +635,9 @@ export default function Cases() {
                           </div>
                           <div style={{display:"flex",alignItems:"center",gap:"8px",flexShrink:0}} onClick={e=>e.stopPropagation()}>
                             <button className="cp-mv-btn" onClick={()=>openDetails(c._id)}><Eye size={13}/> View Details</button>
+                            {c.status === "Completed" && (
+                              <button className="cp-recheck-btn" onClick={()=>handleRecheck(c._id)}><RefreshCw size={13}/> Recheck</button>
+                            )}
                             <button className="cp-del-btn" title="Delete case" onClick={()=>setDeleteTarget({id:c._id,name:c.patientName||c.patientId})}><Trash2 size={14}/></button>
                           </div>
                         </div>
@@ -646,6 +657,9 @@ export default function Cases() {
                         </div>
                         <div style={{display:"flex",alignItems:"center",gap:"7px",flexShrink:0}} onClick={e=>e.stopPropagation()}>
                           <button className="cp-mv-btn" onClick={()=>openDetails(c._id)}><Eye size={12}/> View</button>
+                          {c.status === "Completed" && (
+                            <button className="cp-recheck-btn cp-recheck-btn-mobile" onClick={()=>handleRecheck(c._id)}><RefreshCw size={12}/> Recheck</button>
+                          )}
                           <button className="cp-del-btn" title="Delete case" onClick={()=>setDeleteTarget({id:c._id,name:c.patientName||c.patientId})}><Trash2 size={13}/></button>
                         </div>
                       </div>

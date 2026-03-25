@@ -465,9 +465,478 @@ const statusBadgeClass = s => ({ Uploaded: "badge-uploaded", "Under Review": "ba
 const isYes = v => v === true || v === "Yes";
 const Em    = () => <span style={{color:"#d1d5db",fontWeight:400}}>—</span>;
 
+/* ══════════════════════════════════════════════════════
+   PDF GENERATION — Matches Clinical Genetics Report style
+   ══════════════════════════════════════════════════════ */
+async function loadJsPDF() {
+  if (window.jspdf?.jsPDF) return window.jspdf.jsPDF;
+  await new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+  return window.jspdf.jsPDF;
+}
+
+async function generatePDF(caseData) {
+  const JsPDF = await loadJsPDF();
+  const doc = new JsPDF({ unit: "mm", format: "a4" });
+
+  const W  = 210;
+  const H  = 297;
+  const ML = 18;
+  const MR = 192;
+  const CW = MR - ML;
+
+  /* ── Palette (matches Clinical Report) ── */
+  const navy      = [10, 25, 60];
+  const teal      = [0, 128, 128];
+  const tealLight = [220, 245, 245];
+  const white     = [255, 255, 255];
+  const offWhite  = [248, 250, 252];
+  const slate     = [51, 65, 85];
+  const muted     = [100, 116, 139];
+  const border    = [215, 225, 235];
+  const lineGray  = [226, 232, 240];
+
+  let y = 0;
+
+  /* ─── Page break helper ─── */
+  const pb = (need = 20) => {
+    if (y + need > H - 20) { doc.addPage(); y = 20; }
+  };
+
+  /* ─── Thin rule ─── */
+  const rule = (thickness = 0.3, color = lineGray) => {
+    doc.setDrawColor(...color);
+    doc.setLineWidth(thickness);
+    doc.line(ML, y, MR, y);
+    y += 3;
+  };
+
+  /* ─── Section label ─── */
+  const sectionLabel = (text) => {
+    pb(14);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7);
+    doc.setTextColor(...teal);
+    doc.text(text.toUpperCase(), ML, y);
+    y += 4;
+    doc.setDrawColor(...teal);
+    doc.setLineWidth(0.6);
+    doc.line(ML, y, ML + 30, y);
+    y += 5;
+  };
+
+  /* ─── Three-column info row ─── */
+  const threeCol = (triples) => {
+    pb(13);
+    const colW = CW / 3;
+    // Calculate row height based on tallest wrapped value
+    let maxLines = 1;
+    triples.forEach(([, v]) => {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.5);
+      const lines = doc.splitTextToSize(String(v || "—"), colW - 6);
+      if (lines.length > maxLines) maxLines = lines.length;
+    });
+    const rowH = maxLines * 5 + 9;
+    triples.forEach(([k, v], i) => {
+      const x = ML + i * colW;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.setTextColor(...muted);
+      doc.text(k, x, y);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.5);
+      doc.setTextColor(...slate);
+      const lines = doc.splitTextToSize(String(v || "—"), colW - 6);
+      doc.text(lines, x, y + 5, { lineHeightFactor: 1.4 });
+    });
+    y += rowH;
+  };
+
+  /* ─── Score box — value auto-scales, label pinned to bottom ─── */
+  const scoreBox = (label, value, x, w, h, accent = false) => {
+    // Background
+    doc.setFillColor(...(accent ? navy : offWhite));
+    doc.setDrawColor(...border);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(x, y, w, h, 2, 2, accent ? "F" : "FD");
+
+    // Teal top accent bar on non-accent boxes
+    if (!accent) {
+      doc.setFillColor(...teal);
+      doc.roundedRect(x, y, w, 2.5, 1, 1, "F");
+    }
+
+    const valStr  = String(value ?? "—");
+    const pad     = 5; // mm padding each side
+    const maxValW = w - pad * 2;
+    const labelH  = 10; // mm reserved at bottom for label
+
+    // Auto-shrink font until value fits in one line
+    let valSize = 20;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(valSize);
+    while (doc.getTextWidth(valStr) > maxValW && valSize > 8) {
+      valSize -= 0.5;
+      doc.setFontSize(valSize);
+    }
+
+    // Vertical centre of the value area (above label zone)
+    const valueAreaH = h - labelH;
+    // jsPDF text y is baseline; font ascender ≈ 72% of point size in mm (1pt ≈ 0.353mm)
+    const ascender  = valSize * 0.353 * 0.72;
+    const valY      = y + valueAreaH / 2 + ascender / 2;
+
+    doc.setTextColor(...(accent ? white : navy));
+    doc.text(valStr, x + w / 2, valY, { align: "center" });
+
+    // Label — pinned 3.5mm from bottom inside box
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(6.5);
+    doc.setTextColor(...(accent ? [160, 190, 240] : muted));
+    doc.text(label.toUpperCase(), x + w / 2, y + h - 3.5, { align: "center" });
+  };
+
+  /* ═══════════════════════════════════════════
+     HEADER — full-width navy top bar
+  ═══════════════════════════════════════════ */
+  doc.setFillColor(...navy);
+  doc.rect(0, 0, W, 48, "F");
+
+  // Teal left accent strip
+  doc.setFillColor(...teal);
+  doc.rect(0, 0, 5, 48, "F");
+
+  // Institution / brand
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.setTextColor(...white);
+  doc.text("Prenatal AI Copilot", ML + 2, 14);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(180, 210, 220);
+  doc.text("Case Management  |  Patient Record", ML + 2, 20);
+
+  // Report title — right side
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(180, 220, 255);
+  doc.text("PATIENT CASE REPORT", MR, 12, { align: "right" });
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(140, 180, 200);
+  doc.text(`Date: ${new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" })}`, MR, 20, { align: "right" });
+
+  // Divider inside header
+  doc.setDrawColor(...teal);
+  doc.setLineWidth(0.4);
+  doc.line(ML + 2, 28, MR, 28);
+
+  // Patient name in header
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(...white);
+  doc.text(`Patient: ${caseData.patientName || "—"}`, ML + 2, 37);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(160, 200, 220);
+  const caseId = caseData._id ? caseData._id.slice(-8) : "—";
+  doc.text(`ID: ${caseData.patientId || "—"}  ·  Status: ${caseData.status || "—"}  ·  Case: ${caseId}`, ML + 2, 43);
+
+  // Status badge — top-right in header
+  if (caseData.status) {
+    const statusColors = {
+      "Uploaded":     [0, 90, 150],
+      "Under Review": [120, 80, 0],
+      "Completed":    [0, 100, 60],
+    };
+    const sc = statusColors[caseData.status] || [60, 60, 80];
+    doc.setFillColor(...sc);
+    doc.roundedRect(MR - 40, 30, 40, 14, 2, 2, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(...white);
+    doc.text(caseData.status, MR - 20, 39.5, { align: "center" });
+    doc.setFontSize(6.5);
+    doc.setTextColor(180, 220, 240);
+    doc.text("STATUS", MR - 20, 43.5, { align: "center" });
+  }
+
+  y = 56;
+
+  /* ═══════════════════════════════════════════
+     PATIENT INFORMATION
+  ═══════════════════════════════════════════ */
+  sectionLabel("Patient Information");
+
+  threeCol([
+    ["Patient Name",        caseData.patientName        || "—"],
+    ["Patient ID",          caseData.patientId          || "—"],
+    ["Status",              caseData.status             || "—"],
+  ]);
+  threeCol([
+    ["Gestational Age",     caseData.gestationalAge ? `${caseData.gestationalAge} weeks` : "—"],
+    ["Mode of Conception",  caseData.modeOfConception   || "—"],
+    ["Consanguinity",       isYes(caseData.consanguinity) ? "Yes" : "No"],
+  ]);
+  threeCol([
+    ["Analysis Date",       new Date().toLocaleDateString()],
+    ["Case Created",        caseData.createdAt ? new Date(caseData.createdAt).toLocaleDateString() : "—"],
+    ["Last Updated",        caseData.updatedAt ? new Date(caseData.updatedAt).toLocaleDateString() : "—"],
+  ]);
+
+  y += 4;
+  rule(0.3);
+
+  /* ═══════════════════════════════════════════
+     ATTACHED REPORT FILE (if any)
+  ═══════════════════════════════════════════ */
+  if (caseData.reportFile) {
+    pb(22);
+    sectionLabel("Attached Report");
+
+    doc.setFillColor(...offWhite);
+    doc.setDrawColor(...border);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(ML, y, CW, 14, 1.5, 1.5, "FD");
+    doc.setFillColor(...teal);
+    doc.rect(ML, y, 3, 14, "F");
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8.5);
+    doc.setTextColor(...slate);
+    doc.text(caseData.reportFile, ML + 8, y + 6);
+
+    if (caseData.reportFileType) {
+      const typeStr = (caseData.reportFileType.split("/")[1] || "").toUpperCase();
+      doc.setFillColor(...tealLight);
+      doc.setDrawColor(...teal);
+      doc.setLineWidth(0.3);
+      doc.roundedRect(MR - 22, y + 3, 20, 7, 1.5, 1.5, "FD");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7);
+      doc.setTextColor(...teal);
+      doc.text(typeStr, MR - 12, y + 8, { align: "center" });
+    }
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(...muted);
+    doc.text("Attached genetic report file", ML + 8, y + 11);
+
+    y += 20;
+    rule(0.3);
+  }
+
+  /* ═══════════════════════════════════════════
+     PP4 SCORE RESULTS
+  ═══════════════════════════════════════════ */
+  if (caseData.pp4) {
+    pb(60);
+    sectionLabel("PP4 Score Results");
+
+    const gap    = 5;
+    const boxW   = (CW - gap * 2) / 3;
+    const boxH   = 38;
+    const startX = ML;
+
+    scoreBox("Raw Score",    caseData.pp4.rawScore   ?? "—", startX,                boxW, boxH, false);
+    scoreBox("Risk Level",   caseData.pp4.riskLevel  ?? "—", startX + boxW + gap,   boxW, boxH, false);
+    scoreBox("Final Score",  caseData.pp4.finalScore ?? "—", startX + (boxW + gap) * 2, boxW, boxH, true);
+
+    y += boxH + 8;
+
+    // Score bar
+    pb(18);
+    const finalScore = parseFloat(caseData.pp4.finalScore) || 0;
+    const barH = 6;
+    doc.setFillColor(...lineGray);
+    doc.roundedRect(ML, y, CW, barH, barH / 2, barH / 2, "F");
+    const pct = Math.min(finalScore / 10, 1);
+    if (pct > 0) {
+      doc.setFillColor(0, 100, 130);
+      doc.roundedRect(ML, y, CW * pct, barH, barH / 2, barH / 2, "F");
+    }
+    [0.4, 0.7].forEach(t => {
+      doc.setDrawColor(...white);
+      doc.setLineWidth(0.8);
+      doc.line(ML + CW * t, y, ML + CW * t, y + barH);
+    });
+    y += barH + 4;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    doc.setTextColor(...muted);
+    doc.text("Low Risk (0)", ML, y);
+    doc.text("Moderate (5)", ML + CW / 2, y, { align: "center" });
+    doc.text("High Risk (10)", MR, y, { align: "right" });
+    y += 8;
+
+    // Risk badge
+    if (caseData.pp4.riskLevel) {
+      pb(14);
+      doc.setFillColor(0, 80, 110);
+      doc.roundedRect(ML, y, 55, 10, 2, 2, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.5);
+      doc.setTextColor(...white);
+      doc.text(caseData.pp4.riskLevel, ML + 27.5, y + 6.8, { align: "center" });
+      y += 16;
+    }
+
+    // Calculated at
+    if (caseData.pp4.calculatedAt) {
+      pb(10);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(...muted);
+      doc.text(`Score calculated: ${new Date(caseData.pp4.calculatedAt).toLocaleString()}`, ML, y);
+      y += 8;
+    }
+
+    y += 2;
+    rule(0.3);
+  }
+
+  /* ═══════════════════════════════════════════
+     CLINICAL SUMMARY
+  ═══════════════════════════════════════════ */
+  if (caseData.summary) {
+    // Text starts at ML+8, box ends at MR, so max text width = CW - 8 - 4 (right pad)
+    const sumFontSize = 8.5;
+    const sumLineH    = sumFontSize * 0.353 * 1.55; // mm per line at 1.55 leading
+    doc.setFontSize(sumFontSize);
+    const sumLines = doc.splitTextToSize(caseData.summary, CW - 14);
+    const sumH     = sumLines.length * sumLineH + 14; // 14 = top pad(8) + bottom pad(6)
+
+    pb(sumH + 20);
+    sectionLabel("Clinical Summary");
+    pb(sumH + 4);
+
+    doc.setFillColor(...offWhite);
+    doc.setDrawColor(...border);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(ML, y, CW, sumH, 2, 2, "FD");
+    doc.setFillColor(...teal);
+    doc.rect(ML, y, 3, sumH, "F");
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(sumFontSize);
+    doc.setTextColor(...slate);
+    doc.text(sumLines, ML + 8, y + 8, { lineHeightFactor: 1.55 });
+    y += sumH + 8;
+    rule(0.3);
+  }
+
+  /* ═══════════════════════════════════════════
+     TIMELINE
+  ═══════════════════════════════════════════ */
+  pb(30);
+  sectionLabel("Case Timeline");
+
+  threeCol([
+    ["Created",      caseData.createdAt ? new Date(caseData.createdAt).toLocaleString() : "—"],
+    ["Last Updated", caseData.updatedAt ? new Date(caseData.updatedAt).toLocaleString() : "—"],
+    ["Current Status", caseData.status || "—"],
+  ]);
+
+  y += 4;
+  rule(0.3);
+
+  /* ═══════════════════════════════════════════
+     AUTHORISATION / SIGNATURE BLOCK
+  ═══════════════════════════════════════════ */
+  pb(40);
+  sectionLabel("Authorisation");
+
+  // Signature area
+  doc.setDrawColor(...border);
+  doc.setLineWidth(0.3);
+  doc.rect(ML, y, CW / 2 - 8, 28, "D");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(7);
+  doc.setTextColor(...muted);
+  doc.text("SIGNATURE & STAMP", ML + 4, y + 5);
+  doc.setDrawColor(...lineGray);
+  doc.setLineWidth(0.2);
+  doc.line(ML + 4, y + 20, ML + CW / 2 - 12, y + 20);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7.5);
+  doc.setTextColor(...muted);
+  doc.text("Authorised Clinician", ML + 4, y + 25);
+
+  // Right side report details
+  const sigRightX = ML + CW / 2 + 4;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(7);
+  doc.setTextColor(...muted);
+  doc.text("REPORT DETAILS", sigRightX, y + 5);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  doc.setTextColor(...slate);
+  doc.text(`Patient: ${caseData.patientName || "—"}`, sigRightX, y + 11);
+  doc.text(`Patient ID: ${caseData.patientId || "—"}`, sigRightX, y + 17);
+  doc.text(`Case Status: ${caseData.status || "—"}`, sigRightX, y + 23);
+  y += 34;
+
+  /* ═══════════════════════════════════════════
+     DISCLAIMER BOX
+  ═══════════════════════════════════════════ */
+  pb(18);
+  doc.setFillColor(255, 251, 235);
+  doc.setDrawColor(253, 211, 77);
+  doc.setLineWidth(0.4);
+  const discLines = doc.splitTextToSize(
+    "This report is generated with AI assistance and provides clinical decision support only. It does not replace clinical judgement or modify ACMG variant classifications. All findings must be reviewed and verified by a qualified medical professional before clinical action. Prenatal AI — Confidential.",
+    CW - 14
+  );
+  const discH = discLines.length * 4.8 + 9;
+  doc.roundedRect(ML, y, CW, discH, 2, 2, "FD");
+  doc.setFillColor(217, 119, 6);
+  doc.rect(ML, y, 3, discH, "F");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(7.5);
+  doc.setTextColor(146, 64, 14);
+  doc.text("DISCLAIMER", ML + 7, y + 5.5);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7.5);
+  doc.setTextColor(161, 98, 7);
+  doc.text(discLines, ML + 7, y + 10.5, { lineHeightFactor: 1.4 });
+  y += discH + 6;
+
+  /* ═══════════════════════════════════════════
+     FOOTER — every page
+  ═══════════════════════════════════════════ */
+  const totalPages = doc.getNumberOfPages();
+  for (let p = 1; p <= totalPages; p++) {
+    doc.setPage(p);
+    doc.setFillColor(...navy);
+    doc.rect(0, H - 12, W, 12, "F");
+    doc.setFillColor(...teal);
+    doc.rect(0, H - 12, 5, 12, "F");
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6.5);
+    doc.setTextColor(160, 200, 220);
+    doc.text(`Prenatal AI Copilot  ·  ${caseData.patientName || "—"}  ·  ${caseData.patientId || "—"}`, ML, H - 4.5);
+    doc.text(
+      `Page ${p} / ${totalPages}  ·  Patient Case Report  ·  ${new Date().toLocaleDateString()}`,
+      MR, H - 4.5, { align: "right" }
+    );
+  }
+
+  doc.save(`Case_${caseData.patientId || "patient"}_${Date.now()}.pdf`);
+}
+
 export default function CaseDetailsModal({ caseData, onClose, onUpdated }) {
   const [editing, setEditing] = useState(false);
   const [saving,  setSaving]  = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [form, setForm] = useState({
     patientName:      caseData?.patientName      ?? "",
     gestationalAge:   caseData?.gestationalAge   ?? "",
@@ -488,59 +957,36 @@ export default function CaseDetailsModal({ caseData, onClose, onUpdated }) {
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const handleSave = async () => {
-  setSaving(true);
-  try {
-    const payload = {
-      patientName:      form.patientName,
-      gestationalAge:   form.gestationalAge,
-      modeOfConception: form.modeOfConception,
-      consanguinity:    form.consanguinity,   // send "Yes"/"No" string directly
-      status:           form.status,
-    };
-    await API.put(`/cases/${caseData._id}`, payload);
-    setEditing(false);
-    onUpdated?.({ ...caseData, ...payload });
-  } catch (e) {
-    console.error(e);
-    alert(e.response?.data?.message || "Save failed. Please try again.");
-  } finally {
-    setSaving(false);
-  }
-};
-  const handleDownload = () => {
-    const lines = [
-      "════════════════════════════════════",
-      "     PRENATAL AI — CASE REPORT",
-      "════════════════════════════════════", "",
-      "PATIENT INFORMATION",
-      "────────────────────────────────────",
-      `Patient ID         : ${caseData.patientId        || "—"}`,
-      `Patient Name       : ${caseData.patientName      || "—"}`,
-      `Status             : ${caseData.status           || "—"}`,
-      `Gestational Age    : ${caseData.gestationalAge ? caseData.gestationalAge + " weeks" : "—"}`,
-      `Mode of Conception : ${caseData.modeOfConception || "—"}`,
-      `Consanguinity      : ${isYes(caseData.consanguinity) ? "Yes" : "No"}`, "",
-    ];
-    if (caseData.pp4) lines.push(
-      "PP4 SCORE", "────────────────────────────────────",
-      `Raw Score   : ${caseData.pp4.rawScore   ?? "—"}`,
-      `Final Score : ${caseData.pp4.finalScore ?? "—"}`,
-      `Risk Level  : ${caseData.pp4.riskLevel  ?? "—"}`,
-      `Calculated  : ${caseData.pp4.calculatedAt ? new Date(caseData.pp4.calculatedAt).toLocaleString() : "—"}`, ""
-    );
-    if (caseData.summary) lines.push("CLINICAL SUMMARY", "────────────────────────────────────", caseData.summary, "");
-    lines.push(
-      "TIMELINE", "────────────────────────────────────",
-      `Created      : ${caseData.createdAt ? new Date(caseData.createdAt).toLocaleString() : "—"}`,
-      `Last Updated : ${caseData.updatedAt ? new Date(caseData.updatedAt).toLocaleString() : "—"}`,
-      "", "════════════════════════════════════",
-      `Prenatal AI Copilot · ${new Date().toLocaleString()}`
-    );
-    const a = Object.assign(document.createElement("a"), {
-      href:     URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/plain" })),
-      download: `Case_${caseData.patientId || "report"}.txt`,
-    });
-    a.click();
+    setSaving(true);
+    try {
+      const payload = {
+        patientName:      form.patientName,
+        gestationalAge:   form.gestationalAge,
+        modeOfConception: form.modeOfConception,
+        consanguinity:    form.consanguinity,
+        status:           form.status,
+      };
+      await API.put(`/cases/${caseData._id}`, payload);
+      setEditing(false);
+      onUpdated?.({ ...caseData, ...payload });
+    } catch (e) {
+      console.error(e);
+      alert(e.response?.data?.message || "Save failed. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      await generatePDF(caseData);
+    } catch (err) {
+      console.error("PDF generation failed:", err);
+      alert("PDF generation failed. Please try again.");
+    } finally {
+      setDownloading(false);
+    }
   };
 
   const fmtSummary = t =>
@@ -591,8 +1037,16 @@ export default function CaseDetailsModal({ caseData, onClose, onUpdated }) {
                   ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                   : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>}
               </button>
-              <button className="cdm-action-btn btn-download" onClick={handleDownload} title="Download report">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <button
+                className="cdm-action-btn btn-download"
+                onClick={handleDownload}
+                title="Download PDF report"
+                disabled={downloading}
+                style={downloading ? { opacity: 0.6, cursor: "not-allowed" } : {}}
+              >
+                {downloading
+                  ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" style={{animation:"spin 1s linear infinite"}}><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                  : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>}
               </button>
               <button className="cdm-action-btn btn-close" onClick={onClose} title="Close">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>

@@ -1,9 +1,10 @@
+/* eslint-disable no-unused-vars */
 import Sidebar from "../../components/doctor/Sidebar";
 import Topbar from "../../components/doctor/Topbar";
 import MobileBottomBar from "../../components/doctor/MobileBottomBar";
 import { jsPDF } from "jspdf";
 import axios from "axios";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useState, useEffect, useRef } from "react";
 import API from "../../services/api";
 import {
@@ -12,11 +13,8 @@ import {
   Mic, MicOff, User, Send, MessageSquare,
   Activity, Shield, Zap, Loader, Search,
   TrendingUp, Info, Phone, ClipboardList,
-  ChevronRight, BarChart2, Heart, Eye
+  ChevronRight, BarChart2, Heart, Eye, RefreshCw
 } from "lucide-react";
-
-
-
 
 
 /* ═══════════════════════════════════════
@@ -183,6 +181,7 @@ const CSS = `
 .cs-box.cs-open { border-color:#7c3aed; box-shadow:0 0 0 3px rgba(124,58,237,.12); }
 .cs-left { display:flex; align-items:center; gap:10px; flex:1; min-width:0; }
 .cs-icon { color:#7c3aed; flex-shrink:0; }
+.cs-search-icon-main { flex-shrink:0; }
 .cs-text { font-size:14px; font-weight:500; color:#1e1b4b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .cs-text.cs-ph  { color:#94a3b8; font-weight:400; }
 .cs-pill { padding:3px 10px; border-radius:999px; font-size:11px; font-weight:700; flex-shrink:0; }
@@ -398,7 +397,7 @@ audio { width:100%; border-radius:10px; height:36px; }
   display:flex; align-items:flex-start; gap:12px;
   padding:12px 14px; border-radius:11px;
   background:#f8fafc; border:1.5px solid var(--border);
-  transition:border-color .15s;
+  transition:border-color .15px;
 }
 .g-cl-item-display:hover { border-color:#c4b5fd; background:#f5f3ff; }
 .g-cl-item-dot {
@@ -595,10 +594,10 @@ audio { width:100%; border-radius:10px; height:36px; }
 `;
 
 
-
-
 const ALLOWED = [
   "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "audio/mpeg","audio/mp3","audio/wav","audio/webm",
   "video/mp4","image/jpeg","image/png","text/plain",
 ];
@@ -654,6 +653,7 @@ function CaseSelect({ cases, value, onChange }) {
       >
         <div className="cs-left">
           <User size={16} className="cs-icon"/>
+          <Search size={14} className="cs-search-icon-main" style={{color: '#64748b'}}/>
           {selected ? (
             <span className="cs-text">
               {selected.patientName} &mdash; <span style={{fontFamily:"monospace",fontSize:12,color:"#64748b"}}>{selected.patientId}</span>
@@ -736,9 +736,11 @@ function StepTracker({ current }) {
 }
 
 export default function GeneAnalysis() {
+  const [searchParams] = useSearchParams();
   const [collapsed,       setCollapsed]       = useState(window.innerWidth <= 768);
-  const [selectedCase,    setSelectedCase]    = useState("");
+  const [selectedCase,    setSelectedCase]    = useState(searchParams.get('caseId') || "");
   const [cases,           setCases]           = useState([]);
+  const [doctorProfile,   setDoctorProfile]   = useState(null); // ✅ fetched from backend
   const [uploadMode,      setUploadMode]      = useState("file");
   const [file,            setFile]            = useState(null);
   const [dragActive,      setDragActive]      = useState(false);
@@ -759,13 +761,15 @@ export default function GeneAnalysis() {
   const [phone,           setPhone]           = useState("");
   const [showWAInput,     setShowWAInput]     = useState(false);
   const [scoreBarWidth,   setScoreBarWidth]   = useState(0);
-  const [isNonWES,        setIsNonWES]        = useState(false);  // ✅ NEW
+  const [isNonWES,        setIsNonWES]        = useState(false);
+  const [isRecheck,       setIsRecheck]       = useState(searchParams.get('recheck') === 'true');
   const fileInputRef = useRef();
   const navigate = useNavigate();
   const [liveTranscript, setLiveTranscript] = useState("");
   const [interimText,    setInterimText]    = useState("");
   const recognitionRef = useRef(null);
 
+  // eslint-disable-next-line no-unused-vars
   const resetState = () => {
     setFile(null);
     setAnalysisStarted(false);
@@ -779,7 +783,7 @@ export default function GeneAnalysis() {
     setChecklist({});
     setLiveTranscript("");
     setInterimText("");
-    setAudioBlob(null);      // ✅ add this
+    setAudioBlob(null);
   };
 
   const currentStep = !selectedCase ? 1
@@ -793,6 +797,7 @@ export default function GeneAnalysis() {
     return () => window.removeEventListener("resize", onR);
   }, []);
 
+  // ✅ Fetch cases
   useEffect(() => {
     (async () => {
       try {
@@ -800,16 +805,51 @@ export default function GeneAnalysis() {
         const res = await axios.get("http://localhost:5000/api/cases", {
           headers: { Authorization: `Bearer ${token}` }
         });
-        setCases((res.data.cases||[]).filter(c=>c.status==="Uploaded"||c.status==="Under Review"));
+        setCases((res.data.cases||[]).filter(c=>c.status==="Uploaded"||c.status==="Under Review"||c.status==="Completed"));
       } catch(e) { console.error(e); }
+    })();
+  }, []);
+
+  // ✅ Fetch doctor profile from backend
+  useEffect(() => {
+    (async () => {
+      try {
+        const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
+        const doctorId = localStorage.getItem("userId") || storedUser?.id;
+
+        let profileResp;
+        if (doctorId) {
+          profileResp = await API.get(`/doctor-profile/${doctorId}`);
+        } else {
+          profileResp = await API.get("/doctor-profile/profile");
+        }
+
+        const profileData = profileResp.data?.profile || profileResp.data;
+        if (profileData && typeof profileData === "object") {
+          setDoctorProfile(profileData);
+        } else {
+          throw new Error("Invalid doctor profile response");
+        }
+      } catch (e) {
+        console.error("[GeneAnalysis] Failed to fetch doctor profile:", e);
+
+        const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
+        if (storedUser?.name || storedUser?.email) {
+          setDoctorProfile({
+            fullName: storedUser.name,
+            email: storedUser.email,
+          });
+        }
+      }
     })();
   }, []);
 
   useEffect(() => {
     const found = cases.find(c=>c._id===selectedCase);
     if (found?.status==="Completed") {
-      alert("This case is already completed.");
-      setSelectedCase("");
+      setIsRecheck(true);
+    } else {
+      setIsRecheck(false);
     }
   }, [selectedCase, cases]);
 
@@ -831,191 +871,126 @@ export default function GeneAnalysis() {
   const handleFile = (f) => {
     if (!f) return;
     if (!selectedCase) { alert("Please select a case first."); return; }
-    const ok = ALLOWED.includes(f.type) || f.name.endsWith(".pdf");
-    if (!ok) { alert("Supported: PDF, MP3, WAV, MP4, WEBM, JPEG, PNG, TXT"); return; }
+    const ok = ALLOWED.includes(f.type) ||
+      f.name.endsWith(".pdf") || f.name.endsWith(".doc") || f.name.endsWith(".docx");
+    if (!ok) { alert("Supported: PDF, DOC, DOCX, MP3, WAV, MP4, WEBM, JPEG, PNG, TXT"); return; }
     if (f.size > 50*1024*1024) { alert("Max 50MB."); return; }
     setFile(f);
   };
 
-  
   /* ── VOICE ── */
- const handleMic = async () => {
-  if (!isRecording) {
-    try {
-      // Request microphone permission first
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      
-      // Start MediaRecorder for actual audio blob → Whisper
-      const mediaRec = new MediaRecorder(stream);
-      let chunks = [];
-      mediaRec.ondataavailable = e => {
-        console.log("[Voice] Audio chunk received:", e.data.size, "bytes");
-        chunks.push(e.data);
-      };
-      mediaRec.onstop = () => {
-        const blob = new Blob(chunks, { type:"audio/webm" });
-        console.log("[Voice] Recording stopped. Audio blob size:", blob.size, "bytes");
-        setAudioBlob(blob);
-      };
-      mediaRec.onerror = (e) => {
-        console.error("[Voice] MediaRecorder error:", e);
-        alert("Recording error: " + e.error);
-      };
-      mediaRec.start();
-      setMediaRecorder(mediaRec);
-      setIsRecording(true);
-      setLiveTranscript(""); // Reset transcript on new recording
-      
-      // START live transcription for display
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (SpeechRecognition) {
-        const rec = new SpeechRecognition();
-        rec.continuous = true;
-        rec.interimResults = true;
-        rec.lang = "en-US";
-        rec.onstart = () => console.log("[Voice] Speech recognition started");
-        rec.onresult = (e) => {
-          let final = "", interim = "";
-          for (let i = e.resultIndex; i < e.results.length; i++) {
-            if (e.results[i].isFinal) final += e.results[i][0].transcript + " ";
-            else interim += e.results[i][0].transcript;
-          }
-          if (final) setLiveTranscript(prev => prev + final);
-          setInterimText(interim);
+  const handleMic = async () => {
+    if (!isRecording) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mediaRec = new MediaRecorder(stream);
+        let chunks = [];
+        mediaRec.ondataavailable = e => {
+          console.log("[Voice] Audio chunk received:", e.data.size, "bytes");
+          chunks.push(e.data);
         };
-        rec.onend = () => { 
-          console.log("[Voice] Speech recognition ended");
-          if (isRecording) rec.start(); 
+        mediaRec.onstop = () => {
+          const blob = new Blob(chunks, { type:"audio/webm" });
+          console.log("[Voice] Recording stopped. Audio blob size:", blob.size, "bytes");
+          setAudioBlob(blob);
         };
-        rec.onerror = (e) => {
-          console.error("[Voice] Speech recognition error:", e.error);
+        mediaRec.onerror = (e) => {
+          console.error("[Voice] MediaRecorder error:", e);
+          alert("Recording error: " + e.error);
         };
-        rec.start();
-        recognitionRef.current = rec;
-      }
-    } catch (err) {
-      console.error("[Voice] Microphone access error:", err);
-      alert("Microphone access denied. Please allow microphone permissions and try again.");
-    }
-  } else {
-    // STOP recording
-    console.log("[Voice] Stopping microphone and speech recognition");
-    recognitionRef.current?.stop();
-    setInterimText("");
-    mediaRecorder?.stop();
-    setIsRecording(false);
-    
-    // Stop audio tracks
-    if (mediaRecorder?.stream) {
-      mediaRecorder.stream.getTracks().forEach(track => track.stop());
-    }
-  }
-};
+        mediaRec.start();
+        setMediaRecorder(mediaRec);
+        setIsRecording(true);
+        setLiveTranscript("");
 
-const handleUpload = async () => {
-  if (!selectedCase) { alert("Select a case first."); return; }
-  if (!file && !audioBlob && !submittedText) { alert("Please provide input."); return; }
-  
-  // ✅ Voice input specific validation
-  if (audioBlob && audioBlob.size === 0) {
-    alert("Recording is empty. Please record again and ensure the audio was captured.");
-    return;
-  }
-  
-  try {
-    setLoading(true);
-    const fd = new FormData();
-    if (file)          { 
-      fd.append("file", file, file.name);
-      console.log("[Upload] File:", file.name, file.size, "bytes");
-    }
-    if (audioBlob)     { 
-      fd.append("file", audioBlob, "voice.webm");
-      console.log("[Upload] Audio blob:", audioBlob.size, "bytes");
-    }
-    if (submittedText) { 
-      fd.append("type","text"); 
-      fd.append("text",submittedText);
-      console.log("[Upload] Text input:", submittedText.length, "chars");
-    }
-    
-    // Get gestational age from selected case
-    const caseData = cases.find(c => c._id === selectedCase);
-    if (caseData?.gestationalAge) {
-      fd.append("gestation", String(caseData.gestationalAge));
-      console.log("[Upload] Gestation age:", caseData.gestationalAge, "weeks");
-    }
- 
-    const res    = await API.post(`/gene/analyze/${selectedCase}`, fd, {
-      headers: { "Content-Type":"multipart/form-data" },
-      timeout: 120000 // 2 minute timeout for audio processing
-    });
-    const result = res.data;
-    console.log("[GeneAnalysis] Upload result:", JSON.stringify(result).slice(0, 500));
-    
-    // ✅ Handle unrecognized speech error
-    if (result.warning === "unrecognized_speech") {
-      alert(result.message || "Audio did not contain recognizable medical report content. Please speak clearly and mention the report type and gene name.");
-      setLoading(false);
-      return;
-    }
-    
-    await API.put(`/cases/${selectedCase}/status`, { status:"Under Review" });
- 
-    const reportType = result?.report_type || "WES";
-    console.log("[GeneAnalysis] Detected report type:", reportType);
- 
-    // ✅ Non-WES (CMA, SCAN, SERUM) — includes audio/video fallback to SCAN
-    if (reportType !== "WES") {
-      console.log("[GeneAnalysis] Processing as Non-WES report:", reportType);
-      setIsNonWES(true);
-      setGeneData({
-        gene:             reportType + " Report",
-        variant:          result?.extracted?.result_summary || "See checklist below",
-        visibility_score: null,
-        report_type:      reportType,
-        extracted:        result?.extracted || {}
-      });
-      const nonWESChecklist = result?.checklist || [];
-      if (Array.isArray(nonWESChecklist) && nonWESChecklist.length > 0) {
-        const grouped = {};
-        nonWESChecklist.forEach(item => {
-          const cat = item.category || "Clinical Actions";
-          if (!grouped[cat]) grouped[cat] = [];
-          grouped[cat].push(item.task || String(item));
-        });
-        setBackendChecklist(Object.entries(grouped).map(([title, items]) => ({ title, items })));
-      } else {
-        setBackendChecklist([{ title:"Clinical Action Items", items:["No checklist items generated"] }]);
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SpeechRecognition) {
+          const rec = new SpeechRecognition();
+          rec.continuous = true;
+          rec.interimResults = true;
+          rec.lang = "en-US";
+          rec.onstart = () => console.log("[Voice] Speech recognition started");
+          rec.onresult = (e) => {
+            let final = "", interim = "";
+            for (let i = e.resultIndex; i < e.results.length; i++) {
+              if (e.results[i].isFinal) final += e.results[i][0].transcript + " ";
+              else interim += e.results[i][0].transcript;
+            }
+            if (final) setLiveTranscript(prev => prev + final);
+            setInterimText(interim);
+          };
+          rec.onend = () => {
+            console.log("[Voice] Speech recognition ended");
+            if (isRecording) rec.start();
+          };
+          rec.onerror = (e) => {
+            console.error("[Voice] Speech recognition error:", e.error);
+          };
+          rec.start();
+          recognitionRef.current = rec;
+        }
+      } catch (err) {
+        console.error("[Voice] Microphone access error:", err);
+        alert("Microphone access denied. Please allow microphone permissions and try again.");
       }
-      setChecklist({});
-      setAnalysisStarted(true);
-      setPp4Calculated(false);
-      setPp4Result(null);
-      setLoading(false);
+    } else {
+      console.log("[Voice] Stopping microphone and speech recognition");
+      recognitionRef.current?.stop();
+      setInterimText("");
+      mediaRecorder?.stop();
+      setIsRecording(false);
+      if (mediaRecorder?.stream) {
+        mediaRecorder.stream.getTracks().forEach(track => track.stop());
+      }
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!selectedCase) { alert("Select a case first."); return; }
+    if (!file && !audioBlob && !submittedText) { alert("Please provide input."); return; }
+
+    if (audioBlob && audioBlob.size === 0) {
+      alert("Recording is empty. Please record again and ensure the audio was captured.");
       return;
     }
- 
-    // ✅ WES
-    setIsNonWES(false);
-    if (!result?.genetic?.gene || result.genetic.gene === "UNKNOWN" || result.warning) {
-      console.log("[GeneAnalysis] Gene detection failed:", { 
-        hasGene: !!result?.genetic?.gene, 
-        gene: result?.genetic?.gene,
-        warning: result?.warning,
-        reportType,
-        fullResult: result 
+
+    try {
+      setLoading(true);
+      const fd = new FormData();
+      if (file)          { fd.append("file", file, file.name); }
+      if (audioBlob)     { fd.append("file", audioBlob, "voice.webm"); }
+      if (submittedText) { fd.append("type","text"); fd.append("text",submittedText); }
+
+      const caseData = cases.find(c => c._id === selectedCase);
+      if (caseData?.gestationalAge) {
+        fd.append("gestation", String(caseData.gestationalAge));
+      }
+
+      const res    = await API.post(`/gene/analyze/${selectedCase}`, fd, {
+        // Let Axios/browser set Content-Type with boundary for multipart form data
+        timeout: 120000
       });
-      // If it's audio/video and was converted to SCAN, don't show error
-      if (reportType && reportType !== "WES") {
-        console.log("[GeneAnalysis] Audio/video file processed as", reportType);
+      const result = res.data;
+      console.log("[GeneAnalysis] Upload result:", JSON.stringify(result).slice(0, 500));
+
+      if (result.warning === "unrecognized_speech") {
+        alert(result.message || "Audio did not contain recognizable medical report content.");
+        setLoading(false);
+        return;
+      }
+
+      await API.put(`/cases/${selectedCase}/status`, { status:"Under Review" });
+
+      const reportType = result?.report_type || "WES";
+
+      if (reportType !== "WES") {
         setIsNonWES(true);
         setGeneData({
-          gene: reportType + " Report",
-          variant: result?.extracted?.result_summary || "Clinical findings extracted",
+          gene:             reportType + " Report",
+          variant:          result?.extracted?.result_summary || "See checklist below",
           visibility_score: null,
-          report_type: reportType,
-          extracted: result?.extracted || {}
+          report_type:      reportType,
+          extracted:        result?.extracted || {}
         });
         const nonWESChecklist = result?.checklist || [];
         if (Array.isArray(nonWESChecklist) && nonWESChecklist.length > 0) {
@@ -1027,7 +1002,7 @@ const handleUpload = async () => {
           });
           setBackendChecklist(Object.entries(grouped).map(([title, items]) => ({ title, items })));
         } else {
-          setBackendChecklist([{ title:"Clinical Action Items", items:["Audio/video content processed"] }]);
+          setBackendChecklist([{ title:"Clinical Action Items", items:["No checklist items generated"] }]);
         }
         setChecklist({});
         setAnalysisStarted(true);
@@ -1036,262 +1011,723 @@ const handleUpload = async () => {
         setLoading(false);
         return;
       }
-      const errorMsg = audioBlob 
-        ? "Voice input did not contain genetic information. Please speak clearly and mention gene names or findings, e.g., 'Gene name is L1CAM' or 'Variant C-dot 234 A greater than G'."
-        : "Gene not detected in the file. Please check the document contains genetic information, or try uploading a different file type (PDF, text, audio with genetic details).";
-      alert(result.warning || errorMsg);
-      setLoading(false); return;
-    }
-    setGeneData({ ...result.genetic, report_type: "WES" });
-    const clRes = await API.post(`/gene/checklist/${selectedCase}`, { gene: result.genetic.gene });
-    setBackendChecklist(clRes.data.checklist);
-    setGeneData(prev => ({
-      ...prev,
-      visibility_class:  clRes.data.metadata?.visibility_class,
-      visibility_score:  clRes.data.metadata?.visibility_score,
-      confidence_factor: clRes.data.metadata?.confidence_factor,
-    }));
-    setChecklist({});
-    setAnalysisStarted(true);
-    setPp4Calculated(false);
-    setPp4Result(null);
-  } catch(e) {
-    console.error(e);
-    alert(e.response?.data?.message || "Analysis failed. Please try again.");
-  } finally { setLoading(false); }
-};
+
+      setIsNonWES(false);
+      if (!result?.genetic?.gene || result.genetic.gene === "UNKNOWN" || result.warning) {
+        if (reportType && reportType !== "WES") {
+          setIsNonWES(true);
+          setGeneData({
+            gene: reportType + " Report",
+            variant: result?.extracted?.result_summary || "Clinical findings extracted",
+            visibility_score: null,
+            report_type: reportType,
+            extracted: result?.extracted || {}
+          });
+          const nonWESChecklist = result?.checklist || [];
+          if (Array.isArray(nonWESChecklist) && nonWESChecklist.length > 0) {
+            const grouped = {};
+            nonWESChecklist.forEach(item => {
+              const cat = item.category || "Clinical Actions";
+              if (!grouped[cat]) grouped[cat] = [];
+              grouped[cat].push(item.task || String(item));
+            });
+            setBackendChecklist(Object.entries(grouped).map(([title, items]) => ({ title, items })));
+          } else {
+            setBackendChecklist([{ title:"Clinical Action Items", items:["Audio/video content processed"] }]);
+          }
+          setChecklist({});
+          setAnalysisStarted(true);
+          setPp4Calculated(false);
+          setPp4Result(null);
+          setLoading(false);
+          return;
+        }
+        const errorMsg = audioBlob
+          ? "Voice input did not contain genetic information. Please speak clearly and mention gene names or findings."
+          : "Gene not detected in the file. Please check the document contains genetic information.";
+        alert(result.warning || errorMsg);
+        setLoading(false); return;
+      }
+      setGeneData({ ...result.genetic, report_type: "WES" });
+      const clRes = await API.post(`/gene/checklist/${selectedCase}`, { gene: result.genetic.gene });
+      setBackendChecklist(clRes.data.checklist);
+      setGeneData(prev => ({
+        ...prev,
+        visibility_class:  clRes.data.metadata?.visibility_class,
+        visibility_score:  clRes.data.metadata?.visibility_score,
+        confidence_factor: clRes.data.metadata?.confidence_factor,
+      }));
+      setChecklist({});
+      setAnalysisStarted(true);
+      setPp4Calculated(false);
+      setPp4Result(null);
+    } catch(e) {
+      console.error("[GeneAnalysis] upload error:", e);
+      const errorMsg = e.response?.data?.message || e.response?.data?.detail || e.message || "Analysis failed. Please try again.";
+      alert(errorMsg);
+    } finally { setLoading(false); }
+  };
 
   /* ── PP4 CALCULATE ── */
- const handleCalculate = async () => {
-  if (pp4Calculated) { alert("Score already calculated."); return; }
- 
-  // ✅ Non-WES → Clinical Risk Score
-  if (isNonWES) {
-    try {
-      // Validate that doctor filled in clinical findings
-      const requiredFields = {
-        "CMA": ["cnv_result", "consanguinity", "microdeletions", "roh", "cardiac_findings"],
-        "SCAN": ["anomalies", "nt", "nasal_bone", "doppler", "liquor"],
-        "SERUM": ["nt_result", "nasal_bone", "ductus_venosus", "tricuspid"]
-      };
-      
-      const reportType = geneData?.report_type || "CMA";
-      const required = requiredFields[reportType] || [];
-      
-      for (const field of required) {
-         if (!checklist[field]) {
-           const fieldNames = {
-             "cnv_result": "CNV Result",
-             "consanguinity": "Consanguinity",
-             "microdeletions": "Microdeletions",
-             "roh": "ROH (Regions of Homozygosity)",
-             "cardiac_findings": "Cardiac Findings",
-             "anomalies": "Anomalies",
-             "nt": "NT Measurement",
-             "nasal_bone": "Nasal Bone",
-             "doppler": "Doppler",
-             "liquor": "Amniotic Fluid",
-             "nt_result": "NT Result",
-             "ductus_venosus": "Ductus Venosus",
-             "tricuspid": "Tricuspid Regurgitation"
-           };
-           alert(`⚠️ MISSING: Please fill in "${fieldNames[field] || field}" in the Clinical Findings section above.`);
-           return;
-         }
-       }
-      
-      // Map doctor's selections to risk scorer format
-      const clinicalFindings = {};
-      if (reportType === "CMA") {
-        clinicalFindings.cnv_result = (checklist.cnv_result || "").toLowerCase();
-        clinicalFindings.consanguinity = checklist.consanguinity === "Yes" ? "yes" : "no";
-        clinicalFindings.microdeletions = checklist.microdeletions === "Present" ? "detected" : "none";
-        clinicalFindings.roh = checklist.roh === "Detected" ? "detected" : "none";
-        clinicalFindings.cardiac_findings = checklist.cardiac_findings === "Present" ? ["cardiac finding"] : [];
-      } else if (reportType === "SCAN") {
-        clinicalFindings.anomalies = checklist.anomalies === "Present" ? ["anomaly"] : [];
-        clinicalFindings.nt = checklist.nt === "Abnormal" ? "abnormal" : "normal";
-        clinicalFindings.nasal_bone = checklist.nasal_bone ? checklist.nasal_bone.toLowerCase().replace(" ", "_") : "normal";
-        clinicalFindings.doppler = checklist.doppler === "Abnormal" ? "abnormal" : "normal";
-        clinicalFindings.liquor = checklist.liquor ? checklist.liquor.toLowerCase().replace(" ", "_") : "normal";
-      } else if (reportType === "SERUM") {
-        clinicalFindings.nt_result = checklist.nt_result === "Abnormal" ? "abnormal" : "normal";
-        clinicalFindings.nasal_bone = checklist.nasal_bone ? checklist.nasal_bone.toLowerCase().replace(" ", "_") : "normal";
-        clinicalFindings.ductus_venosus = checklist.ductus_venosus === "Abnormal" ? "abnormal" : "normal";
-        clinicalFindings.tricuspid = checklist.tricuspid === "Present" ? "yes" : "no";
+  const handleCalculate = async () => {
+    if (pp4Calculated) { alert("Score already calculated."); return; }
+
+    if (isNonWES) {
+      try {
+        const requiredFields = {
+          "CMA":   ["cnv_result","consanguinity","microdeletions","roh","cardiac_findings"],
+          "SCAN":  ["anomalies","nt","nasal_bone","doppler","liquor"],
+          "SERUM": ["nt_result","nasal_bone","ductus_venosus","tricuspid"]
+        };
+        const reportType = geneData?.report_type || "CMA";
+        const required = requiredFields[reportType] || [];
+        for (const field of required) {
+          if (!checklist[field]) {
+            const fieldNames = {
+              cnv_result:"CNV Result", consanguinity:"Consanguinity",
+              microdeletions:"Microdeletions", roh:"ROH (Regions of Homozygosity)",
+              cardiac_findings:"Cardiac Findings", anomalies:"Anomalies",
+              nt:"NT Measurement", nasal_bone:"Nasal Bone", doppler:"Doppler",
+              liquor:"Amniotic Fluid", nt_result:"NT Result",
+              ductus_venosus:"Ductus Venosus", tricuspid:"Tricuspid Regurgitation"
+            };
+            alert(`⚠️ MISSING: Please fill in "${fieldNames[field] || field}" in the Clinical Findings section above.`);
+            return;
+          }
+        }
+
+        const clinicalFindings = {};
+        if (reportType === "CMA") {
+          clinicalFindings.cnv_result      = (checklist.cnv_result||"").toLowerCase();
+          clinicalFindings.consanguinity   = checklist.consanguinity === "Yes" ? "yes" : "no";
+          clinicalFindings.microdeletions  = checklist.microdeletions === "Present" ? "detected" : "none";
+          clinicalFindings.roh             = checklist.roh === "Detected" ? "detected" : "none";
+          clinicalFindings.cardiac_findings= checklist.cardiac_findings === "Present" ? ["cardiac finding"] : [];
+        } else if (reportType === "SCAN") {
+          clinicalFindings.anomalies = checklist.anomalies === "Present" ? ["anomaly"] : [];
+          clinicalFindings.nt        = checklist.nt === "Abnormal" ? "abnormal" : "normal";
+          clinicalFindings.nasal_bone= checklist.nasal_bone ? checklist.nasal_bone.toLowerCase().replace(" ","_") : "normal";
+          clinicalFindings.doppler   = checklist.doppler === "Abnormal" ? "abnormal" : "normal";
+          clinicalFindings.liquor    = checklist.liquor ? checklist.liquor.toLowerCase().replace(" ","_") : "normal";
+        } else if (reportType === "SERUM") {
+          clinicalFindings.nt_result     = checklist.nt_result === "Abnormal" ? "abnormal" : "normal";
+          clinicalFindings.nasal_bone    = checklist.nasal_bone ? checklist.nasal_bone.toLowerCase().replace(" ","_") : "normal";
+          clinicalFindings.ductus_venosus= checklist.ductus_venosus === "Abnormal" ? "abnormal" : "normal";
+          clinicalFindings.tricuspid     = checklist.tricuspid === "Present" ? "yes" : "no";
+        }
+
+        const res = await API.post(`/gene/calculate/${selectedCase}`, {
+          gene: reportType, gestation: 20,
+          extracted_data: clinicalFindings, checklist
+        });
+        setPp4Result(res.data);
+        setPp4Calculated(true);
+        await API.put(`/cases/${selectedCase}/status`, { status:"Completed" });
+      } catch(e) {
+        console.error("[handleCalculate] Error:", e);
+        const errorMsg = e.response?.data?.message || e.response?.data?.detail || e.message;
+        alert(`❌ Risk score calculation failed:\n\n${errorMsg}`);
       }
-      
-      console.log(`[calculatePP4] Non-WES clinical findings:`, clinicalFindings);
-      
+      return;
+    }
+
+    const allItems = backendChecklist.filter(c=>c.items?.length).flatMap(c=>c.items);
+    for (const item of allItems) {
+      if (!checklist[item]) { alert("⚠️ Please answer all checklist items."); return; }
+    }
+    try {
+      const selections = { core:{}, supportive:{}, negative:{} };
+      backendChecklist.forEach(cat => {
+        cat.items.forEach(item => {
+          const v = checklist[item];
+          if (cat.title==="Core Findings"||cat.title==="Fetal Echo Findings") selections.core[item]=v;
+          else if (cat.title==="Supportive Findings") selections.supportive[item]=v;
+          else if (cat.title==="Negative Findings") selections.negative[item]=v;
+          else selections.core[item]=v;
+        });
+      });
       const res = await API.post(`/gene/calculate/${selectedCase}`, {
-        gene:           reportType,
-        gestation:      20,
-        extracted_data: clinicalFindings,
-        checklist:      checklist
+        gene:geneData?.gene, gestation:20, selections
       });
       setPp4Result(res.data);
       setPp4Calculated(true);
       await API.put(`/cases/${selectedCase}/status`, { status:"Completed" });
+    } catch(e) { console.error(e); alert("PP4 calculation failed."); }
+  };
+
+  const handleRecheck = async () => {
+    if (!selectedCase) return;
+    try {
+      // Reset analysis state
+      setPp4Result(null);
+      setPp4Calculated(false);
+      setChecklist({});
+      setGeneData(null);
+      setIsNonWES(false);
+      setBackendChecklist([]);
+      setIsRecheck(false);
+      // Update case status to Under Review
+      await API.put(`/cases/${selectedCase}/status`, { status:"Under Review" });
+      alert("✅ Case reset for recheck. You can now re-upload documents and recalculate.");
     } catch(e) {
-      console.error("[handleCalculate] Error:", e);
-      const errorMsg = e.response?.data?.message || e.response?.data?.detail || e.message;
-      alert(`❌ Risk score calculation failed:\n\n${errorMsg}`);
+      console.error(e);
+      alert("Failed to reset case for recheck.");
     }
-    return;
-  }
- 
-  // ✅ WES → PP4
-  const allItems = backendChecklist.filter(c=>c.items?.length).flatMap(c=>c.items);
-  for (const item of allItems) {
-    if (!checklist[item]) { alert("⚠️ Please answer all checklist items."); return; }
-  }
-  try {
-    const selections = { core:{}, supportive:{}, negative:{} };
-    backendChecklist.forEach(cat => {
-      cat.items.forEach(item => {
-        const v = checklist[item];
-        if (cat.title==="Core Findings"||cat.title==="Fetal Echo Findings") selections.core[item]=v;
-        else if (cat.title==="Supportive Findings") selections.supportive[item]=v;
-        else if (cat.title==="Negative Findings") selections.negative[item]=v;
-        else selections.core[item]=v;
+  };
+
+  /* ══════════════════════════════════════════════════
+     PDF EXPORT — Redesigned as a clean medical report
+  ══════════════════════════════════════════════════ */
+  const buildPDF = () => {
+    if (!pp4Result?.pp4_result && !isNonWES) { alert("Calculate the score first."); return; }
+
+    const doc = new jsPDF({ unit: "mm", format: "a4" });
+    const W  = 210;
+    const H  = 297;
+    const ML = 18;
+    const MR = 192;
+    const CW = MR - ML;
+
+    /* ── Palette ── */
+    const navy      = [10, 25, 60];
+    const teal      = [0, 128, 128];
+    const tealLight = [220, 245, 245];
+    const white     = [255, 255, 255];
+    const offWhite  = [248, 250, 252];
+    const slate     = [51, 65, 85];
+    const muted     = [100, 116, 139];
+    const border    = [215, 225, 235];
+    const lineGray  = [226, 232, 240];
+
+    const caseInfo   = cases.find(c => c._id === selectedCase);
+    const reportType = geneData?.report_type || "WES";
+    const riskLevel  = (pp4Result?.summaries?.risk_level || "").toLowerCase();
+    const finalScore = pp4Result?.pp4_result?.final_score ?? 0;
+
+    const riskColor = riskLevel.includes("high") ? [60,80,120] : riskLevel.includes("mod") ? [70,90,110] : [30,70,100];
+    const riskBg    = riskLevel.includes("high") ? [220,228,245] : riskLevel.includes("mod") ? [225,233,242] : [210,228,242];
+
+    // Doctor info — from doctorProfile (backend) with wide fallback chain
+    const drName  = doctorProfile?.name         || doctorProfile?.fullName      || "";
+    const drSpec  = doctorProfile?.specialty    || doctorProfile?.specialization || "";
+    const drPhone = doctorProfile?.phone        || doctorProfile?.contact        || "";
+    const drInst  = doctorProfile?.hospital     || doctorProfile?.hospitalName   || doctorProfile?.institution || "";
+    const drLic   = doctorProfile?.licenseNumber|| doctorProfile?.license        || doctorProfile?.licenseNo   || "";
+    const drCity  = doctorProfile?.city         || "";
+    const drQual  = doctorProfile?.qualification|| doctorProfile?.degree         || "";
+    const drEmail = doctorProfile?.email        || "";
+
+    let y = 0;
+
+    /* ─── Helpers ─── */
+    const pb = (need = 20) => {
+      if (y + need > H - 20) { doc.addPage(); y = 20; }
+    };
+
+    const rule = (thickness = 0.3, color = lineGray) => {
+      doc.setDrawColor(...color);
+      doc.setLineWidth(thickness);
+      doc.line(ML, y, MR, y);
+      y += 3;
+    };
+
+    const sectionLabel = (text, reserveHeight = 0) => {
+      // Keep heading with enough space for content if required.
+      pb(14 + reserveHeight);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7);
+      doc.setTextColor(...teal);
+      doc.text(text.toUpperCase(), ML, y);
+      y += 4;
+      doc.setDrawColor(...teal);
+      doc.setLineWidth(0.6);
+      doc.line(ML, y, ML + 30, y);
+      y += 5;
+    };
+
+    const threeCol = (triples) => {
+      pb(8);
+      const colW = CW / 3;
+      triples.forEach(([k, v], i) => {
+        const x = ML + i * colW;
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7);
+        doc.setTextColor(...muted);
+        doc.text(k, x, y);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8.5);
+        doc.setTextColor(...slate);
+        const safe = doc.splitTextToSize(String(v || "—"), colW - 4);
+        doc.text(safe[0], x, y + 4.5);
       });
+      y += 11;
+    };
+
+    const scoreBox = (label, value, x, w, h, accent = false) => {
+      doc.setFillColor(...(accent ? navy : offWhite));
+      doc.setDrawColor(...border);
+      doc.setLineWidth(0.3);
+      doc.roundedRect(x, y, w, h, 2, 2, accent ? "F" : "FD");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(18);
+      doc.setTextColor(...(accent ? white : navy));
+      doc.text(String(value), x + w / 2, y + h / 2 + 1, { align: "center" });
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.setTextColor(...(accent ? [180, 200, 255] : muted));
+      doc.text(label.toUpperCase(), x + w / 2, y + h - 5, { align: "center" });
+    };
+
+    /* ═══════════════════════════════════════════
+       HEADER
+    ═══════════════════════════════════════════ */
+    doc.setFillColor(...navy);
+    doc.rect(0, 0, W, 48, "F");
+    doc.setFillColor(...teal);
+    doc.rect(0, 0, 5, 48, "F");
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.setTextColor(...white);
+    doc.text(drInst || "Medical Centre", ML + 2, 14);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(180, 210, 220);
+    const instLine2 = [drCity, "Prenatal Genetics Unit"].filter(Boolean).join("  |  ");
+    doc.text(instLine2, ML + 2, 20);
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.setTextColor(180, 220, 255);
+    doc.text("CLINICAL GENETICS REPORT", MR, 12, { align: "right" });
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(140, 180, 200);
+    doc.text(`Report Type: ${reportType}`, MR, 18, { align: "right" });
+    doc.text(`Date: ${new Date().toLocaleDateString("en-IN", { day:"2-digit", month:"long", year:"numeric" })}`, MR, 24, { align: "right" });
+
+    doc.setDrawColor(...teal);
+    doc.setLineWidth(0.4);
+    doc.line(ML + 2, 28, MR, 28);
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(...white);
+    doc.text(`Patient: ${caseInfo?.patientName || "—"}`, ML + 2, 37);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(160, 200, 220);
+    doc.text(`ID: ${caseInfo?.patientId || "—"}  ·  Status: ${caseInfo?.status || "—"}  ·  Case: ${selectedCase?.slice(-8) || "—"}`, ML + 2, 43);
+
+    if (pp4Result?.summaries?.risk_level) {
+      doc.setFillColor(0, 90, 120);
+      doc.roundedRect(MR - 40, 30, 40, 14, 2, 2, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.setTextColor(...white);
+      doc.text(pp4Result.summaries.risk_level, MR - 20, 39.5, { align: "center" });
+      doc.setFontSize(6.5);
+      doc.setTextColor(180, 220, 240);
+      doc.text("RISK LEVEL", MR - 20, 43.5, { align: "center" });
+    }
+
+    y = 56;
+
+    /* ═══════════════════════════════════════════
+       DOCTOR DETAILS CARD
+    ═══════════════════════════════════════════ */
+    pb(40);
+
+    const doctorContactLines = [];
+    if (drPhone) doctorContactLines.push(drPhone);
+    if (drEmail) doctorContactLines.push(drEmail);
+    const addressText = [drInst, drCity].filter(Boolean).join(", ") || "—";
+    const addressLines = doc.splitTextToSize(addressText, 70);
+
+    const linesHeight = 1 + (doctorContactLines.length > 0 ? doctorContactLines.length : 1) + addressLines.length;
+    const doctorCardHeight = Math.max(44, 16 + linesHeight * 5);
+
+    doc.setFillColor(...offWhite);
+    doc.setDrawColor(...border);
+    doc.setLineWidth(0.4);
+    doc.roundedRect(ML, y, CW, doctorCardHeight, 2, 2, "FD");
+    doc.setFillColor(...teal);
+    doc.roundedRect(ML, y, 3, doctorCardHeight, 1, 1, "F");
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(6.5);
+    doc.setTextColor(...teal);
+    doc.text("CONSULTING DOCTOR", ML + 7, y + 6);
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.setTextColor(...navy);
+    doc.text(drName ? `Dr. ${drName}` : "—", ML + 7, y + 16);
+
+    let contactY = y + 16; // Align contact with doctor name
+
+    if (drQual) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(...slate);
+      doc.text(drQual, ML + 7, y + 24);
+      contactY = y + 16; // Keep contact aligned
+    }
+
+    if (drSpec) {
+      const specLabel = drSpec.toUpperCase();
+      const specW = doc.getTextWidth(specLabel) + 8;
+      doc.setFillColor(...tealLight);
+      doc.setDrawColor(...teal);
+      doc.setLineWidth(0.3);
+      doc.roundedRect(ML + 7, y + 27, specW, 7, 1.5, 1.5, "FD");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7);
+      doc.setTextColor(...teal);
+      doc.text(specLabel, ML + 7 + specW / 2, y + 31.8, { align: "center" });
+      contactY = y + 16; // Keep contact aligned
+    }
+
+    const contactRightX = MR - 8;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.setTextColor(...muted);
+    doc.text("CONTACT", contactRightX, contactY, { align: "right" });
+    contactY += 6;
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(...navy);
+    doc.text(drPhone || "—", contactRightX, contactY, { align: "right" });
+    contactY += 6;
+
+    if (drEmail) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.5);
+      doc.setTextColor(...muted);
+      const emailLines = doc.splitTextToSize(drEmail, 70);
+      emailLines.forEach((line) => {
+        doc.text(line, contactRightX, contactY, { align: "right" });
+        contactY += 5;
+      });
+    }
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(...muted);
+    addressLines.forEach((line) => {
+      doc.text(line, contactRightX, contactY, { align: "right" });
+      contactY += 5;
     });
-    const res = await API.post(`/gene/calculate/${selectedCase}`, {
-      gene:geneData?.gene, gestation:20, selections
-    });
-    setPp4Result(res.data);
-    setPp4Calculated(true);
-    await API.put(`/cases/${selectedCase}/status`, { status:"Completed" });
-  } catch(e) { console.error(e); alert("PP4 calculation failed."); }
-};
-  /* ── PDF EXPORT ── */
-  const handlePDF = () => {
-    if (!pp4Result?.pp4_result && !isNonWES) { alert("Calculate PP4 first."); return; }
-    const doc = new jsPDF({ unit:"mm", format:"a4" });
-    const W = 210; const H = 297;
-    const ml = 20; const mr = W-20; const cw = mr-ml;
 
-    doc.setFillColor(15,23,42);
-    doc.rect(0,0,W,50,"F");
-    doc.setFillColor(124,58,237);
-    doc.rect(0,50,W,4,"F");
-    doc.setTextColor(255,255,255);
-    doc.setFontSize(22); doc.setFont("helvetica","bold");
-    doc.text("Prenatal AI — Clinical Analysis Report",ml,22);
-    doc.setFontSize(10); doc.setFont("helvetica","normal");
-    doc.setTextColor(180,220,215);
-    doc.text(`Generated: ${new Date().toLocaleString()}`,ml,32);
-    doc.text("CONFIDENTIAL — For authorised medical personnel only",ml,40);
+    y += doctorCardHeight + 6;
 
-    let y = 62;
+    /* ═══════════════════════════════════════════
+       PATIENT INFORMATION
+    ═══════════════════════════════════════════ */
+    sectionLabel("Patient Information");
+    threeCol([
+      ["Patient Name",        caseInfo?.patientName || "—"],
+      ["Patient ID",          caseInfo?.patientId   || "—"],
+      ["Report Type",         reportType],
+    ]);
+    threeCol([
+      ["Gestational Age",     caseInfo?.gestationalAge ? `${caseInfo.gestationalAge} weeks` : "—"],
+      ["Mode of Conception",  caseInfo?.modeOfConception || "—"],
+      ["Consanguinity",       caseInfo?.consanguinity === true || caseInfo?.consanguinity === "Yes" ? "Yes" : "No"],
+    ]);
+    threeCol([
+      ["Analysis Date",       new Date().toLocaleDateString()],
+      ["Case Created",        caseInfo?.createdAt ? new Date(caseInfo.createdAt).toLocaleDateString() : "—"],
+      ["Case Status",         caseInfo?.status || "—"],
+    ]);
+    y += 4;
+    rule(0.3);
 
-    const caseInfo = cases.find(c=>c._id===selectedCase);
-    doc.setFillColor(245,243,255);
-    doc.roundedRect(ml,y,cw,34,4,4,"F");
-    doc.setDrawColor(196,181,253); doc.setLineWidth(0.5);
-    doc.roundedRect(ml,y,cw,34,4,4,"D");
-    doc.setTextColor(15,23,42);
-    doc.setFontSize(11); doc.setFont("helvetica","bold");
-    doc.text("Patient & Case Information",ml+6,y+8);
-    doc.setFontSize(9.5); doc.setFont("helvetica","normal");
-    const col1x = ml+6; const col2x = ml+cw/2+4;
-    doc.setTextColor(51,65,85);
-    doc.text(`Patient Name:`,col1x,y+16);
-    doc.setFont("helvetica","bold"); doc.text(caseInfo?.patientName||"N/A",col1x+30,y+16);
-    doc.setFont("helvetica","normal");
-    doc.text(`Patient ID:`,col1x,y+23);
-    doc.setFont("helvetica","bold"); doc.text(caseInfo?.patientId||"N/A",col1x+30,y+23);
-    doc.setFont("helvetica","normal");
-    doc.text(`Report Type:`,col2x,y+16);
-    doc.setFont("helvetica","bold"); doc.setTextColor(124,58,237);
-    doc.text(geneData?.report_type||"WES",col2x+28,y+16);
-    doc.setFont("helvetica","normal"); doc.setTextColor(51,65,85);
-    doc.text(`Date:`,col2x,y+23);
-    doc.setFont("helvetica","bold"); doc.text(new Date().toLocaleDateString(),col2x+14,y+23);
+    /* ═══════════════════════════════════════════
+       GENETIC / REPORT OVERVIEW
+    ═══════════════════════════════════════════ */
+    sectionLabel(isNonWES ? "Report Overview" : "Genetic Findings");
 
-    y += 42;
-
-    // Checklist summary for non-WES
     if (isNonWES) {
-      doc.setFillColor(15,23,42);
-      doc.roundedRect(ml,y,cw,8,2,2,"F");
-      doc.setFontSize(10); doc.setFont("helvetica","bold"); doc.setTextColor(255,255,255);
-      doc.text("📋  Clinical Action Checklist",ml+5,y+5.5);
-      y += 12;
-
-      backendChecklist.forEach(cat => {
-        doc.setFontSize(9.5); doc.setFont("helvetica","bold"); doc.setTextColor(76,29,149);
-        doc.text(cat.title, ml+5, y);
-        y += 6;
-        (cat.items||[]).forEach(item => {
-          const lines = doc.splitTextToSize(`• ${item}`, cw-10);
-          doc.setFontSize(9); doc.setFont("helvetica","normal"); doc.setTextColor(51,65,85);
-          doc.text(lines, ml+8, y);
-          y += lines.length * 5 + 2;
-          if (y > H-30) { doc.addPage(); y = 20; }
-        });
-        y += 4;
-      });
-    } else if (pp4Result?.pp4_result) {
-      // PP4 scores for WES
-      doc.setFillColor(15,23,42);
-      doc.roundedRect(ml,y,cw,8,2,2,"F");
-      doc.setFontSize(10); doc.setFont("helvetica","bold"); doc.setTextColor(255,255,255);
-      doc.text("📊  PP4 Scoring Results",ml+5,y+5.5);
-      y += 12;
-
-      const bw = (cw-8)/3;
-      const scoreBoxes = [
-        { label:"Raw Score",     val:String(pp4Result.pp4_result.raw_score??"-"),  accent:false },
-        { label:"Multiplier",    val:`×${pp4Result.pp4_result.multiplier??"-"}`,   accent:false },
-        { label:"Final PP4",     val:String(animatedFinal),                        accent:true  },
-      ];
-      scoreBoxes.forEach((b,i) => {
-        const bx = ml + i*(bw+4);
-        if (b.accent) { doc.setFillColor(124,58,237); doc.setTextColor(255,255,255); }
-        else          { doc.setFillColor(245,243,255); doc.setTextColor(15,23,42); }
-        doc.roundedRect(bx,y,bw,22,3,3,"F");
-        doc.setFontSize(18); doc.setFont("helvetica","bold");
-        doc.text(b.val, bx+bw/2, y+13, { align:"center" });
-        doc.setFontSize(7.5); doc.setFont("helvetica","normal");
-        if (!b.accent) doc.setTextColor(100,116,139); else doc.setTextColor(204,251,241);
-        doc.text(b.label.toUpperCase(), bx+bw/2, y+19, { align:"center" });
-      });
-      y += 28;
-
-      // Clinical summary
-      if (pp4Result.summaries?.doctor_summary) {
-        y += 8;
-        doc.setFillColor(248,250,252);
-        const summaryText = pp4Result.summaries.doctor_summary;
-        const lines = doc.splitTextToSize(summaryText, cw-10);
-        const boxH = Math.max(lines.length*5+10, 20);
-        doc.roundedRect(ml,y,cw,boxH,3,3,"F");
-        doc.setDrawColor(226,232,240); doc.roundedRect(ml,y,cw,boxH,3,3,"D");
-        doc.setFontSize(9.5); doc.setFont("helvetica","normal"); doc.setTextColor(51,65,85);
-        doc.text(lines,ml+5,y+8);
-        y += boxH+10;
+      threeCol([
+        ["Report Type",      geneData?.report_type || "—"],
+        ["Result",           geneData?.extracted?.cnv_result || geneData?.extracted?.scan_type || geneData?.extracted?.screen_type || "—"],
+        ["Visibility Score", "N/A (Non-WES)"],
+      ]);
+      if (geneData?.extracted?.result_summary) {
+        pb(14);
+        doc.setFillColor(...offWhite);
+        doc.setDrawColor(...border);
+        doc.setLineWidth(0.3);
+        const sumLines = doc.splitTextToSize(geneData.extracted.result_summary, CW - 10);
+        const sumH = sumLines.length * 5 + 8;
+        doc.roundedRect(ML, y, CW, sumH, 1.5, 1.5, "FD");
+        doc.setFillColor(...teal);
+        doc.rect(ML, y, 3, sumH, "F");
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(7.5);
+        doc.setTextColor(...muted);
+        doc.text("SUMMARY", ML + 7, y + 5.5);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9);
+        doc.setTextColor(...slate);
+        doc.text(sumLines, ML + 7, y + 10.5, { lineHeightFactor: 1.5 });
+        y += sumH + 6;
       }
+    } else {
+      threeCol([
+        ["Gene",             geneData?.gene    || "—"],
+        ["Variant",          geneData?.variant || "—"],
+        ["Visibility Score", geneData?.visibility_score ? `${Math.round(geneData.visibility_score * 100)}%` : "—"],
+      ]);
+    }
+    y += 4;
+    rule(0.3);
+
+    /* ═══════════════════════════════════════════
+       SCORE RESULTS
+    ═══════════════════════════════════════════ */
+    if (pp4Result?.pp4_result) {
+      pb(55);
+      sectionLabel(isNonWES ? "Clinical Risk Score" : "PP4 Score Results");
+
+      const boxW   = 46;
+      const boxH   = 30;
+      const gap    = 10;
+      const totalW = boxW * 3 + gap * 2;
+      const startX = ML + (CW - totalW) / 2;
+
+      scoreBox("Raw Score",  pp4Result.pp4_result.raw_score  ?? "—", startX,            boxW, boxH, false);
+      scoreBox("Multiplier", `×${pp4Result.pp4_result.multiplier ?? 1}`, startX + boxW + gap, boxW, boxH, false);
+      scoreBox(isNonWES ? "Final Risk Score" : "Final PP4 Score",
+               finalScore, startX + (boxW + gap) * 2, boxW, boxH, true);
+
+      y += boxH + 8;
+
+      pb(18);
+      const barH = 6;
+      doc.setFillColor(...lineGray);
+      doc.roundedRect(ML, y, CW, barH, barH / 2, barH / 2, "F");
+      const pct = Math.min(finalScore / 10, 1);
+      if (pct > 0) {
+        doc.setFillColor(0, 100, 130);
+        doc.roundedRect(ML, y, CW * pct, barH, barH / 2, barH / 2, "F");
+      }
+      [0.4, 0.7].forEach(t => {
+        doc.setDrawColor(...white);
+        doc.setLineWidth(0.8);
+        doc.line(ML + CW * t, y, ML + CW * t, y + barH);
+      });
+      y += barH + 4;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.setTextColor(...muted);
+      doc.text("Low Risk (0)", ML, y);
+      doc.text("Moderate (5)", ML + CW / 2, y, { align: "center" });
+      doc.text("High Risk (10)", MR, y, { align: "right" });
+      y += 8;
+
+      pb(14);
+      const riskText  = pp4Result?.summaries?.risk_level || "—";
+      const stateText = (pp4Result?.pp4_result?.state || pp4Result?.pp4_result?.score_type || "").replace(/_/g, " ");
+
+      doc.setFillColor(...riskBg);
+      doc.setDrawColor(...riskColor);
+      doc.setLineWidth(0.4);
+      doc.roundedRect(ML, y, 55, 10, 2, 2, "FD");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.5);
+      doc.setTextColor(...riskColor);
+      doc.text(riskText, ML + 27.5, y + 6.8, { align: "center" });
+
+      if (stateText) {
+        doc.setFillColor(...tealLight);
+        doc.setDrawColor(...teal);
+        doc.roundedRect(ML + 60, y, 70, 10, 2, 2, "FD");
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8.5);
+        doc.setTextColor(...teal);
+        doc.text(stateText, ML + 95, y + 6.8, { align: "center" });
+      }
+      y += 16;
     }
 
-    // Disclaimer
-    if (y > H-40) { doc.addPage(); y = 20; }
-    doc.setFillColor(255,251,235); doc.roundedRect(ml,y,cw,18,3,3,"F");
-    doc.setDrawColor(253,230,138); doc.roundedRect(ml,y,cw,18,3,3,"D");
-    doc.setFontSize(8.5); doc.setFont("helvetica","bold"); doc.setTextColor(146,64,14);
-    doc.text("⚠  Clinical Disclaimer",ml+5,y+7);
-    doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(161,98,7);
-    const disc = doc.splitTextToSize("PP4 scores provide decision support only and do not replace clinical judgement. All findings must be verified by a qualified medical professional before any clinical decisions are made.", cw-10);
-    doc.text(disc,ml+5,y+13);
+    rule(0.3);
 
-    // Footer
-    doc.setFillColor(15,23,42);
-    doc.rect(0,H-16,W,16,"F");
-    doc.setFontSize(8); doc.setFont("helvetica","normal"); doc.setTextColor(148,163,184);
-    doc.text("Prenatal AI — Confidential Medical Report",ml,H-7);
-    doc.text(`Page 1  •  ${new Date().toLocaleDateString()}`,mr,H-7,{align:"right"});
+    /* ═══════════════════════════════════════════
+       CLINICAL SUMMARY
+    ═══════════════════════════════════════════ */
+    if (pp4Result?.summaries?.doctor_summary) {
+      const sumLines = doc.splitTextToSize(pp4Result.summaries.doctor_summary, CW - 12);
+      const sumH = sumLines.length * 5.5 + 10;
+      sectionLabel("Clinical Summary", sumH + 8);
+      doc.setFillColor(...offWhite);
+      doc.setDrawColor(...border);
+      doc.setLineWidth(0.3);
+      doc.roundedRect(ML, y, CW, sumH, 2, 2, "FD");
+      doc.setFillColor(...teal);
+      doc.rect(ML, y, 3, sumH, "F");
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(...slate);
+      doc.text(sumLines, ML + 8, y + 8, { lineHeightFactor: 1.6 });
+      y += sumH + 8;
+      rule(0.3);
+    }
 
-    doc.save(`Report_${caseInfo?.patientId||"patient"}_${Date.now()}.pdf`);
+    /* ═══════════════════════════════════════════
+       CLINICAL ACTION CHECKLIST
+    ═══════════════════════════════════════════ */
+    pb(18);
+    sectionLabel(isNonWES ? "Clinical Action Checklist" : "Checklist Summary");
+
+    backendChecklist.filter(c => c.items?.length).forEach((cat) => {
+      pb(16);
+      doc.setFillColor(...navy);
+      doc.rect(ML, y, CW, 8, "F");
+      doc.setFillColor(...teal);
+      doc.rect(ML, y, 3, 8, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8);
+      doc.setTextColor(...white);
+      doc.text(cat.title, ML + 8, y + 5.5);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.5);
+      doc.setTextColor(160, 200, 220);
+      doc.text(`${cat.items.length} item${cat.items.length !== 1 ? "s" : ""}`, MR, y + 5.5, { align: "right" });
+      y += 10;
+
+      cat.items.forEach((item, idx) => {
+        const value    = isNonWES ? null : (checklist[item] || "—");
+        const itemWidth = isNonWES ? CW - 12 : CW - 50; // Increased space for item text in non-WES
+        const rowLines = doc.splitTextToSize(String(item), itemWidth);
+        const rowH     = Math.max(rowLines.length * 5 + 5, 8);
+        pb(rowH);
+
+        if (idx % 2 === 0) {
+          doc.setFillColor(...offWhite);
+          doc.rect(ML, y, CW, rowH, "F");
+        }
+        doc.setDrawColor(...lineGray);
+        doc.setLineWidth(0.15);
+        doc.line(ML, y + rowH, MR, y + rowH);
+
+        doc.setFillColor(...teal);
+        doc.circle(ML + 4.5, y + rowH / 2, 1, "F");
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8.5);
+        doc.setTextColor(...slate);
+        doc.text(rowLines, ML + 9, y + 5.5, { lineHeightFactor: 1.4 });
+
+        if (!isNonWES && value) {
+          const ansCol = value === "Present" ? [0, 100, 100] : value === "Absent" ? [80, 90, 110] : muted;
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(8);
+          doc.setTextColor(...ansCol);
+          doc.text(value, MR - 2, y + rowH / 2 + 3, { align: "right" });
+        }
+
+        y += rowH;
+      });
+      y += 6;
+    });
+
+    rule(0.3);
+
+    /* ═══════════════════════════════════════════
+       FOOTER SIGNATURE BLOCK
+    ═══════════════════════════════════════════ */
+    pb(36);
+    sectionLabel("Authorisation");
+
+    doc.setDrawColor(...border);
+    doc.setLineWidth(0.3);
+    doc.rect(ML, y, CW / 2 - 8, 28, "D");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7);
+    doc.setTextColor(...muted);
+    doc.text("SIGNATURE & STAMP", ML + 4, y + 5);
+    doc.setDrawColor(...lineGray);
+    doc.setLineWidth(0.2);
+    doc.line(ML + 4, y + 20, ML + CW / 2 - 12, y + 20);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(...muted);
+    doc.text(drName ? `Dr. ${drName}` : "Consultant", ML + 4, y + 25);
+
+    const sigRightX = ML + CW / 2 + 4;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7);
+    doc.setTextColor(...muted);
+    doc.text("REPORT DETAILS", sigRightX, y + 5);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(...slate);
+    doc.text(`Doctor: Dr. ${drName || "—"}`,          sigRightX, y + 11);
+    doc.text(`Specialty: ${drSpec || "—"}`,            sigRightX, y + 17);
+    doc.text(`License: ${drLic || "—"}`,               sigRightX, y + 23);
+    if (drEmail) {
+      doc.setFontSize(8);
+      doc.text(`Email: ${drEmail}`,                    sigRightX, y + 27.5);
+    }
+    y += 34;
+
+    /* ═══════════════════════════════════════════
+       DISCLAIMER BOX
+    ═══════════════════════════════════════════ */
+    pb(18);
+    doc.setFillColor(255, 251, 235);
+    doc.setDrawColor(253, 211, 77);
+    doc.setLineWidth(0.4);
+    const discLines = doc.splitTextToSize(
+      "This report is generated with AI assistance and provides clinical decision support only. It does not replace clinical judgement or modify ACMG variant classifications. All findings must be reviewed and verified by a qualified medical professional before clinical action. Prenatal AI — Confidential.",
+      CW - 14
+    );
+    const discH = discLines.length * 4.8 + 9;
+    doc.roundedRect(ML, y, CW, discH, 2, 2, "FD");
+    doc.setFillColor(217, 119, 6);
+    doc.rect(ML, y, 3, discH, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(146, 64, 14);
+    doc.text("DISCLAIMER", ML + 7, y + 5.5);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(161, 98, 7);
+    doc.text(discLines, ML + 7, y + 10.5, { lineHeightFactor: 1.4 });
+    y += discH + 6;
+
+    /* ═══════════════════════════════════════════
+       FOOTER — every page
+    ═══════════════════════════════════════════ */
+    const totalPages = doc.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      doc.setFillColor(...navy);
+      doc.rect(0, H - 12, W, 12, "F");
+      doc.setFillColor(...teal);
+      doc.rect(0, H - 12, 5, 12, "F");
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(6.5);
+      doc.setTextColor(160, 200, 220);
+      const footLeft = [drInst, drName ? `Dr. ${drName}` : null, drPhone].filter(Boolean).join("  ·  ");
+      doc.text(footLeft, ML, H - 4.5);
+      doc.text(
+        `Page ${p} / ${totalPages}  ·  Prenatal AI Clinical Report  ·  ${new Date().toLocaleDateString()}`,
+        MR, H - 4.5, { align: "right" }
+      );
+    }
+
+    doc.save(`ClinicalReport_${caseInfo?.patientId || "patient"}_${Date.now()}.pdf`);
+  };
+
+  const handlePDF = () => {
+    if (!pp4Result?.pp4_result && !isNonWES) { alert("Calculate the score first."); return; }
+    buildPDF();
   };
 
   /* ── WHATSAPP ── */
@@ -1300,9 +1736,10 @@ const handleUpload = async () => {
     const clean = phone.replace(/\D/g,"");
     if (clean.length < 10) { alert("Enter valid number with country code."); return; }
     const c = cases.find(c=>c._id===selectedCase);
+    const doc_name = doctorProfile?.name || doctorProfile?.fullName || "Doctor";
     const msg = isNonWES
-      ? `🏥 *Prenatal AI — ${geneData?.report_type} Report*\n\n👤 *Patient:* ${c?.patientName||"-"}\n🆔 *Case ID:* ${c?.patientId||"-"}\n📅 *Date:* ${new Date().toLocaleDateString()}\n\n📋 *Report Type:* ${geneData?.report_type}\n📝 *Summary:* ${geneData?.extracted?.result_summary||"-"}\n\n_Report generated by Prenatal AI. All findings must be verified by a qualified medical professional._`
-      : `🏥 *Prenatal AI — PP4 Report*\n\n👤 *Patient:* ${c?.patientName||"-"}\n🆔 *Case ID:* ${c?.patientId||"-"}\n📅 *Date:* ${new Date().toLocaleDateString()}\n\n🧬 *Gene:* ${geneData?.gene||"-"}\n📊 *PP4 Score:* ${animatedFinal}\n⚠️ *Risk:* ${pp4Result?.summaries?.risk_level||"-"}\n\n📋 *Summary:*\n${pp4Result?.summaries?.doctor_summary||"-"}\n\n_Report generated by Prenatal AI._`;
+      ? `🏥 *Prenatal AI — ${geneData?.report_type} Report*\n\n👤 *Patient:* ${c?.patientName||"-"}\n🆔 *Case ID:* ${c?.patientId||"-"}\n📅 *Date:* ${new Date().toLocaleDateString()}\n\n📋 *Report Type:* ${geneData?.report_type}\n📝 *Summary:* ${geneData?.extracted?.result_summary||"-"}\n👨‍⚕️ *Doctor:* ${doc_name}\n\n_Report generated by Prenatal AI. All findings must be verified by a qualified medical professional._`
+      : `🏥 *Prenatal AI — PP4 Report*\n\n👤 *Patient:* ${c?.patientName||"-"}\n🆔 *Case ID:* ${c?.patientId||"-"}\n📅 *Date:* ${new Date().toLocaleDateString()}\n\n🧬 *Gene:* ${geneData?.gene||"-"}\n📊 *PP4 Score:* ${animatedFinal}\n⚠️ *Risk:* ${pp4Result?.summaries?.risk_level||"-"}\n👨‍⚕️ *Doctor:* ${doc_name}\n\n📋 *Summary:*\n${pp4Result?.summaries?.doctor_summary||"-"}\n\n_Report generated by Prenatal AI._`;
 
     window.open(`https://wa.me/${clean}?text=${encodeURIComponent(msg)}`, "_blank");
   };
@@ -1314,7 +1751,6 @@ const handleUpload = async () => {
     { id:"text",  icon:<MessageSquare size={14}/>, label:"Text" },
   ];
 
-  /* ── REPORT TYPE LABEL ── */
   const reportTypeLabel = {
     CMA:   "Chromosomal Microarray Analysis",
     SCAN:  "Ultrasound Scan Report",
@@ -1445,81 +1881,73 @@ const handleUpload = async () => {
                 )}
 
                 {uploadMode === "voice" && (
-  <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-    
-    {/* ✅ Live transcription display */}
-    {(isRecording || liveTranscript) && (
-      <div style={{
-        minHeight: 80, padding: "12px 14px",
-        borderRadius: 12, border: "1.5px solid #ddd8f5",
-        background: "#f5f3ff", fontSize: 13,
-        color: "var(--navy)", lineHeight: 1.8
-      }}>
-        {liveTranscript ? (
-          <>
-            <span>{liveTranscript}</span>
-            {interimText && (
-              <span style={{ color: "#94a3b8", borderBottom: "1.5px solid #c4b5fd" }}>
-                {interimText}
-              </span>
-            )}
-          </>
-        ) : (
-          <span style={{ color: "#94a3b8" }}>Listening…</span>
-        )}
-      </div>
-    )}
+                  <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+                    {(isRecording || liveTranscript) && (
+                      <div style={{
+                        minHeight: 80, padding: "12px 14px",
+                        borderRadius: 12, border: "1.5px solid #ddd8f5",
+                        background: "#f5f3ff", fontSize: 13,
+                        color: "var(--navy)", lineHeight: 1.8
+                      }}>
+                        {liveTranscript ? (
+                          <>
+                            <span>{liveTranscript}</span>
+                            {interimText && (
+                              <span style={{ color: "#94a3b8", borderBottom: "1.5px solid #c4b5fd" }}>
+                                {interimText}
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          <span style={{ color: "#94a3b8" }}>Listening…</span>
+                        )}
+                      </div>
+                    )}
 
-    <div className="g-mic-zone">
-      <button className={`g-mic-btn${isRecording?" rec":""}`} onClick={handleMic}>
-        {isRecording ? <MicOff size={28}/> : <Mic size={28}/>}
-      </button>
-      <div className="g-mic-label">
-        {isRecording ? "Recording… tap to stop" : audioBlob ? "Recording captured ✓" : "Tap to start recording"}
-      </div>
-    </div>
+                    <div className="g-mic-zone">
+                      <button className={`g-mic-btn${isRecording?" rec":""}`} onClick={handleMic}>
+                        {isRecording ? <MicOff size={28}/> : <Mic size={28}/>}
+                      </button>
+                      <div className="g-mic-label">
+                        {isRecording ? "Recording… tap to stop" : audioBlob ? "Recording captured ✓" : "Tap to start recording"}
+                      </div>
+                    </div>
 
-    {/* ✅ Audio playback preview */}
-    {audioBlob && !isRecording && (
-      <div className="g-audio-prev">
-        <div className="g-audio-top">
-          <span style={{ fontSize: 12, fontWeight: 700, color: "var(--teal)" }}>
-            ✓ Audio Ready ({(audioBlob.size / 1024).toFixed(1)} KB)
-          </span>
-          <button className="g-audio-rm" onClick={() => {
-            setAudioBlob(null);
-            setLiveTranscript("");
-            console.log("[Voice] Recording cleared");
-          }}>
-            <X size={14}/>
-          </button>
-        </div>
-        <audio 
-          controls 
-          style={{ width: "100%" }}
-          src={URL.createObjectURL(audioBlob)}
-          onError={(e) => console.error("[Voice] Audio playback error:", e)}
-        />
-        {liveTranscript && (
-          <div style={{
-            fontSize: 12,
-            color: "var(--slate)",
-            padding: "8px 10px",
-            borderRadius: 8,
-            background: "rgba(124,58,237,0.05)",
-            borderLeft: "3px solid var(--teal)"
-          }}>
-            <strong>Transcription:</strong>
-            <div style={{ marginTop: 4, fontStyle: "italic" }}>
-              {liveTranscript.trim()}
-            </div>
-          </div>
-        )}
-      </div>
-    )}
-    {/* ... rest of your audio preview */}
-  </div>
-)}
+                    {audioBlob && !isRecording && (
+                      <div className="g-audio-prev">
+                        <div className="g-audio-top">
+                          <span style={{ fontSize: 12, fontWeight: 700, color: "var(--teal)" }}>
+                            ✓ Audio Ready ({(audioBlob.size / 1024).toFixed(1)} KB)
+                          </span>
+                          <button className="g-audio-rm" onClick={() => {
+                            setAudioBlob(null);
+                            setLiveTranscript("");
+                          }}>
+                            <X size={14}/>
+                          </button>
+                        </div>
+                        <audio
+                          controls
+                          style={{ width: "100%" }}
+                          src={URL.createObjectURL(audioBlob)}
+                        />
+                        {liveTranscript && (
+                          <div style={{
+                            fontSize: 12, color: "var(--slate)",
+                            padding: "8px 10px", borderRadius: 8,
+                            background: "rgba(124,58,237,0.05)",
+                            borderLeft: "3px solid var(--teal)"
+                          }}>
+                            <strong>Transcription:</strong>
+                            <div style={{ marginTop: 4, fontStyle: "italic" }}>
+                              {liveTranscript.trim()}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {uploadMode==="text" && (
                   <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
@@ -1586,7 +2014,6 @@ const handleUpload = async () => {
                     <CheckCircle size={18} color="var(--green)" style={{ marginLeft:"auto" }}/>
                   </div>
 
-                  {/* ✅ Non-WES report type banner */}
                   {isNonWES && (
                     <div className={`g-report-banner ${(geneData?.report_type||"").toLowerCase()}`}>
                       <Info size={16}/>
@@ -1604,10 +2031,7 @@ const handleUpload = async () => {
                         fontSize: isNonWES ? "16px" : "20px",
                         wordBreak: "break-word"
                       }}>
-                        {isNonWES
-                          ? (geneData?.report_type || "—")
-                          : (geneData?.gene || "—")
-                        }
+                        {isNonWES ? (geneData?.report_type || "—") : (geneData?.gene || "—")}
                       </div>
                       <div className="g-gene-lbl">
                         {isNonWES ? "Report Type" : "Gene Name"}
@@ -1661,7 +2085,6 @@ const handleUpload = async () => {
                   </div>
 
                   <div className="g-checklist-body">
-                    {/* ✅ Non-WES: Clinical Findings Assessment */}
                     {isNonWES && (
                       <div className="g-cat-wrap">
                         <div className="g-cat-head">
@@ -1883,7 +2306,6 @@ const handleUpload = async () => {
                       </div>
                     )}
 
-                    {/* Original Action Checklist */}
                     {backendChecklist.filter(c=>c.items?.length).map((cat,ci) => (
                       <div key={ci} className="g-cat-wrap">
                         <div className="g-cat-head" onClick={() => setOpenCategory(openCategory===ci?null:ci)}>
@@ -1896,7 +2318,6 @@ const handleUpload = async () => {
 
                         {openCategory===ci && (
                           <div className="g-cat-body">
-                            {/* ✅ Non-WES: display-only items (no radio buttons) */}
                             {isNonWES ? (
                               cat.items.map((item,ii) => (
                                 <div key={ii} className="g-cl-item-display">
@@ -1905,7 +2326,6 @@ const handleUpload = async () => {
                                 </div>
                               ))
                             ) : (
-                              /* WES: radio button items */
                               cat.items.map((item,ii) => (
                                 <div key={ii} className="g-chk-row">
                                   <span className="g-chk-label">{item}</span>
@@ -1930,7 +2350,6 @@ const handleUpload = async () => {
 
                     <div className="g-chk-footer">
                       {isNonWES ? (
-                        /* ✅ Non-WES: show Calculate Clinical Risk Score button */
                         <>
                           <div className="g-chk-hint">
                             Clinical risk scoring based on extracted findings from {geneData?.report_type} report.
@@ -1942,6 +2361,12 @@ const handleUpload = async () => {
                               : <><TrendingUp size={16}/> Calculate Clinical Risk Score</>
                             }
                           </button>
+                          {isRecheck && (
+                            <button className="g-btn-secondary" style={{ width:"100%", marginTop:"10px" }}
+                              onClick={handleRecheck}>
+                              <RefreshCw size={16}/> Recheck & Recalculate
+                            </button>
+                          )}
                         </>
                       ) : (
                         <>
@@ -1955,13 +2380,19 @@ const handleUpload = async () => {
                               : <><TrendingUp size={16}/> Calculate PP4 Score</>
                             }
                           </button>
+                          {isRecheck && (
+                            <button className="g-btn-secondary" style={{ width:"100%", marginTop:"10px" }}
+                              onClick={handleRecheck}>
+                              <RefreshCw size={16}/> Recheck & Recalculate
+                            </button>
+                          )}
                         </>
                       )}
                     </div>
                   </div>
                 </div>
 
-                {/* PP4 Results — WES only */}
+                {/* PP4 Results — WES */}
                 {pp4Calculated && !isNonWES && (
                   <div className="g-card" style={{ animation:"g-pop .4s ease" }}>
                     <div className="g-card-head">
@@ -2054,7 +2485,7 @@ const handleUpload = async () => {
                   </div>
                 )}
 
-                {/* ✅ Clinical Risk Score Results — Non-WES */}
+                {/* Clinical Risk Score Results — Non-WES */}
                 {pp4Calculated && isNonWES && (
                   <div className="g-card" style={{ animation:"g-pop .4s ease" }}>
                     <div className="g-card-head">
@@ -2115,7 +2546,7 @@ const handleUpload = async () => {
                   </div>
                 )}
 
-                {/* ✅ Non-WES Export Section */}
+                {/* Non-WES Export Section */}
                 {isNonWES && (
                   <div className="g-card" style={{ animation:"g-pop .4s ease" }}>
                     <div className="g-card-head">

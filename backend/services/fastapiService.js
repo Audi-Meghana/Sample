@@ -73,6 +73,7 @@ function pickEndpoint(mime) {
   if (mime.includes("word") || mime.includes("document"))                     return "/extract-document";
   if (mime.includes("sheet") || mime.includes("excel") || mime === "text/csv") return "/extract-spreadsheet";
   if (mime.includes("rtf"))                                                    return "/extract-document";
+  if (mime.startsWith("image/"))                                               return "/extract-image";
   return "/extract-pdf"; // fallback
 }
 
