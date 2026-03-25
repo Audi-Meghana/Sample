@@ -1,3 +1,5 @@
+/* eslint-disable react-refresh/only-export-components */
+/* eslint-disable react-hooks/exhaustive-deps */
 import { createContext, useContext, useState, useEffect } from "react";
 import API from "../services/api";
 
@@ -6,7 +8,6 @@ const HistoryContext = createContext();
 export const useHistoryContext = () => useContext(HistoryContext);
 
 export const HistoryProvider = ({ children }) => {
-
   const [history, setHistory] = useState([]);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
@@ -15,6 +16,10 @@ export const HistoryProvider = ({ children }) => {
   const [totalPages, setTotalPages] = useState(1);
 
   const fetchHistory = async () => {
+    // 🔥 FIX: Check for token before making the request
+    const token = localStorage.getItem("token");
+    if (!token) return; 
+
     try {
       const res = await API.get("/history", {
         params: {
@@ -25,22 +30,28 @@ export const HistoryProvider = ({ children }) => {
         }
       });
 
-      setHistory(res.data.data);
-      setTotalPages(res.data.pages);
+      // Added optional chaining just in case the backend response structure varies
+      setHistory(res.data?.data || []);
+      setTotalPages(res.data?.pages || 1);
 
     } catch (error) {
-      console.error(error);
+      // If the error is 401, you might want to handle logout logic here
+      console.error("History Fetch Error:", error.response?.status === 401 ? "Unauthorized" : error.message);
     }
   };
 
   const clearHistory = async () => {
-    await API.delete("/history");
-    fetchHistory();
+    try {
+      await API.delete("/history");
+      fetchHistory();
+    } catch (err) { console.error(err); }
   };
 
   const deleteSingleHistory = async (id) => {
-    await API.delete(`/history/${id}`);
-    fetchHistory();
+    try {
+      await API.delete(`/history/${id}`);
+      fetchHistory();
+    } catch (err) { console.error(err); }
   };
 
   useEffect(() => {
@@ -61,7 +72,8 @@ export const HistoryProvider = ({ children }) => {
         timeFilter,
         setTimeFilter,
         clearHistory,
-        deleteSingleHistory
+        deleteSingleHistory,
+        refreshHistory: fetchHistory // Added this so you can manually trigger a refresh
       }}
     >
       {children}

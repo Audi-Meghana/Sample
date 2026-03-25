@@ -25,18 +25,15 @@ export default function LoginModal({ isOpen, onClose, onSignup }) {
 
     try {
       const res = await API.post("/auth/signin", form);
-
       const { token, user } = res.data;
 
-      // Store authentication
       localStorage.setItem("token", token);
-localStorage.setItem("user", JSON.stringify(user));
-localStorage.setItem("userId", user.id); // 🔥 IMPORTANT FIX
+      localStorage.setItem("user", JSON.stringify(user));
+      localStorage.setItem("userId", user.id); 
       setSuccess(true);
 
-      // Simple navigation (no role logic)
       setTimeout(() => {
-        navigate("/dashboard"); // change if needed
+        navigate("/dashboard");
         onClose();
       }, 1200);
 
@@ -49,61 +46,48 @@ localStorage.setItem("userId", user.id); // 🔥 IMPORTANT FIX
 
   return (
     <>
-      {/* Overlay */}
       <div
-        className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
+        className="fixed inset-0 z-50 bg-black/30 backdrop-blur-sm"
         onClick={onClose}
       />
 
-      {/* Modal */}
-      <div className="fixed inset-0 z-50 flex items-center justify-center px-6">
+      <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
         <div
-          className="relative w-full max-w-md rounded-3xl
-          bg-white/80 backdrop-blur-xl
-          border border-white/50 shadow-2xl p-10 animate-fadeIn"
+          className="relative w-full max-w-md rounded-2xl
+          bg-white/95 backdrop-blur-xl
+          border border-white/50 shadow-xl p-8 animate-fadeIn"
         >
-          {/* Close */}
+          {/* Close - Discreet */}
           <button
             onClick={onClose}
-            className="absolute top-4 right-4 text-gray-500 hover:text-gray-800"
+            className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
           >
-            <X size={22} />
+            <X size={20} />
           </button>
 
-          {/* Icon */}
-          <div className="flex justify-center mb-6">
-            <div className="w-14 h-14 rounded-2xl bg-purple-100 flex items-center justify-center text-purple-600 font-bold">
+          {/* Header - Scaled down */}
+          <div className="text-center mb-6">
+            <div className="inline-flex w-12 h-12 rounded-xl bg-purple-100 items-center justify-center text-purple-600 font-bold text-base mb-3">
               AI
             </div>
+            <h2 className="text-xl font-semibold text-gray-800">Secure Login</h2>
+            <p className="text-sm text-gray-500">Prenatal AI Copilot</p>
           </div>
 
-          {/* Title */}
-          <h2 className="text-center text-2xl font-semibold text-gray-800 mb-2">
-            Secure Login
-          </h2>
-
-          <p className="text-center text-sm text-gray-500 mb-6">
-            Access Prenatal AI Copilot
-          </p>
-
-          {/* SUCCESS */}
           {success && (
-            <div className="mb-5 flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 p-3 rounded-xl justify-center">
-              <CheckCircle size={18} />
-              Login successful. Redirecting…
+            <div className="mb-4 flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-100 p-3 rounded-xl justify-center">
+              <CheckCircle size={16} /> Login successful.
             </div>
           )}
 
-          {/* ERROR */}
           {error && (
-            <div className="mb-5 text-sm text-red-600 bg-red-50 border border-red-200 p-3 rounded-xl">
+            <div className="mb-4 text-sm text-red-600 bg-red-50 border border-red-100 p-3 rounded-xl text-center">
               {error}
             </div>
           )}
 
-          {/* FORM */}
           {!success && (
-            <form onSubmit={handleSubmit} className="space-y-5">
+            <form onSubmit={handleSubmit} className="space-y-4">
               <input
                 type="email"
                 name="email"
@@ -111,7 +95,7 @@ localStorage.setItem("userId", user.id); // 🔥 IMPORTANT FIX
                 placeholder="Email"
                 value={form.email}
                 onChange={handleChange}
-                className="w-full px-4 py-3 rounded-xl border"
+                className="w-full px-4 py-2.5 text-sm rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-400/30"
               />
 
               <input
@@ -121,40 +105,34 @@ localStorage.setItem("userId", user.id); // 🔥 IMPORTANT FIX
                 placeholder="Password"
                 value={form.password}
                 onChange={handleChange}
-                className="w-full px-4 py-3 rounded-xl border"
+                className="w-full px-4 py-2.5 text-sm rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-400/30"
               />
 
-               
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3 rounded-xl text-white font-semibold bg-gradient-to-r from-purple-400 to-purple-600 disabled:opacity-60"
+                className="w-full py-3 mt-2 rounded-xl text-white text-sm font-semibold bg-gradient-to-r from-purple-500 to-purple-600 hover:opacity-90 transition-opacity disabled:opacity-60"
               >
-                {loading ? "Signing in…" : "Login"}
+                {loading ? "Signing in..." : "Login"}
               </button>
             </form>
           )}
 
-          {/* CREATE ACCOUNT */}
           {!success && (
-            <p className="mt-6 text-sm text-center text-gray-500">
+            <p className="mt-5 text-sm text-center text-gray-500">
               Don’t have an account?{" "}
               <button
                 type="button"
-                onClick={() => {
-                  onClose();
-                  onSignup();
-                }}
+                onClick={() => { onClose(); onSignup(); }}
                 className="text-purple-600 font-medium hover:underline"
               >
-                Create account
+                Sign up
               </button>
             </p>
           )}
 
-          {/* Disclaimer */}
-          <p className="mt-6 text-xs text-center text-gray-400">
-            This platform is a Clinical Decision Support tool.
+          <p className="mt-6 text-[11px] text-center text-gray-400 border-t pt-4">
+            Clinical Decision Support Platform
           </p>
         </div>
       </div>
