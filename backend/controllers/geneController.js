@@ -54,7 +54,7 @@ exports.startAnalysis = async (req, res) => {
     }
 
     const reportType = result?.report_type || "WES";
-    console.log("Report type detected:", reportType);
+    console.log("Report type detected:", reportType, "caseId:", caseId);
 
     // ✅ Handle non-WES reports (CMA, SCAN, SERUM)
     if (reportType !== "WES") {
@@ -75,15 +75,17 @@ exports.startAnalysis = async (req, res) => {
         updateData.reportFileType = req.file.mimetype;
       }
 
-      await Case.findByIdAndUpdate(caseId, updateData);
+      const updated = await Case.findByIdAndUpdate(caseId, updateData);
+      console.log("CMA update result:", updated ? "ok" : "not found", "caseId:", caseId);
 
-      await History.create({
+      const historyEntry = await History.create({
         doctorId,
         caseId,
         caseNumber: caseData.patientId,
         action:     "GENE_ANALYSIS",
         details:    `${reportType} report processed. Clinical risk scoring available.`
       });
+      console.log("CMA history written", historyEntry?._id);
 
       return res.json(result);
     }
@@ -125,7 +127,8 @@ exports.startAnalysis = async (req, res) => {
 
   } catch (error) {
     console.error("Start Analysis Error:", error);
-    res.status(500).json({ message: "Analysis failed" });
+    const msg = (error?.response?.data?.message || error?.message || "Unknown analysis error");
+    res.status(500).json({ message: `Analysis failed: ${msg}` });
   }
 };
 

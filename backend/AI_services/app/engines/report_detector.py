@@ -80,10 +80,58 @@ class ReportDetector:
         ]):
             return "SERUM"
 
-        # ─── WES FORMAL — check BEFORE SCAN ──────────────────────────────
-        # Must be checked BEFORE SCAN because WES reports can mention
-        # "ultrasound findings" as clinical context, which would wrongly
-        # trigger the SCAN detector if SCAN was checked first.
+        # ✅ FIX: CHECK SCAN KEYWORDS FIRST (before generic WES keywords)
+        # This prevents SCAN reports with phrases like "clinical report"
+        # from being incorrectly detected as WES
+        scan_keywords = [
+            "ultrasound",
+            "fetal biometry",
+            "fetal heart rate",
+            "tiffa",
+            "fetal anatomy",
+            "trimester scan",
+            "transabdominal",
+            "anomaly scan",
+            "crown rump length",
+            "bpd",
+            "fhr",
+            "nt measurement",
+            "nasal bone",
+            "doppler flow",
+            "tricuspid valve",
+            "ductus venosus",
+            "fetal measurements",
+            "amniotic fluid",
+            "prenatal ultrasound",
+            "obstetric ultrasound",
+            "obstetric scan",
+            "obstetric biometry",
+            "pregnancy ultrasound",
+            "fetal ultrasound",
+            "prenatal scan",
+            "b-mode",
+            "scanning",
+            "sonogram",
+            "gestational sac",
+            "heart rate",
+            "embryo",
+            "fetal pole",
+            "abort",
+            "scan report",
+            "ultrasound report",
+            "biometry report",
+            "anatomy scan",
+            "mid-trimester",
+            "second trimester",
+            "cardiovascular",
+            "cardiac screening",
+        ]
+        if any(k in t for k in scan_keywords):
+            return "SCAN"
+
+        # ─── WES FORMAL — checked AFTER SCAN ─────────────────────────────
+        # Now that SCAN is checked first, we can safely check generic WES keywords
+        # without them hijacking SCAN reports that happen to mention common phrases
         if any(k in t for k in [
             "whole exome sequencing",
             "exome sequencing",
@@ -128,11 +176,9 @@ class ReportDetector:
 
         # ─── WES SPOKEN — audio/informal WES language ────────────────────
         # Whisper transcribes spoken WES reports informally.
-        # Checked BEFORE SCAN because an audio WES report often says
-        # "ultrasound findings include..." as supporting context —
-        # that one word "ultrasound" must NOT hijack detection to SCAN.
+        # Checked AFTER SCAN because SCAN reports won't have strong genetic language
         wes_spoken_strong = [
-            # Report type — very strong signals
+            # Report type — very strong signals (but not too generic)
             "genetic report",
             "gene report",
             "prenatal genetic",
@@ -141,7 +187,6 @@ class ReportDetector:
             "gene analysis",
             "genetic analysis",
             "dna report",
-            "clinical report",
             "diagnosis",
             "pathogenic",
 
@@ -181,15 +226,10 @@ class ReportDetector:
             "tp53",
 
             # Inheritance / variant type — strong WES context
-            "heterozygous",
-            "homozygous",
             "de novo",
             "autosomal dominant",
             "autosomal recessive",
             "x-linked",
-            "missense",
-            "nonsense",
-            "frameshift",
             "splice site",
             "likely benign",
             "variant of uncertain",
@@ -255,58 +295,8 @@ class ReportDetector:
             print(f"DEBUG ReportDetector: gene heuristic single candidate {gene_candidates} + gene context → WES")
             return "WES"
 
-        # ─── SCAN — checked AFTER all WES checks ─────────────────────────
-        # Only reaches here if absolutely no WES indicators found.
-        scan_keywords = [
-            "ultrasound",
-            "fetal biometry",
-            "fetal heart rate",
-            "tiffa",
-            "fetal anatomy",
-            "trimester scan",
-            "transabdominal",
-            "anomaly scan",
-            "crown rump length",
-            "bpd",
-            "fhr",
-            "nt measurement",
-            "nasal bone",
-            "doppler flow",
-            "tricuspid valve",
-            "ductus venosus",
-            "fetal measurements",
-            "amniotic fluid",
-            "prenatal ultrasound",
-            "obstetric ultrasound",
-            "obstetric scan",
-            "obstetric biometry",
-            "pregnancy ultrasound",
-            "fetal ultrasound",
-            "prenatal scan",
-            "b-mode",
-            "scanning",
-            "sonogram",
-            "gestational sac",
-            "heart rate",
-            "embryo",
-            "fetal pole",
-            "abort",
-            "scan report",
-            "ultrasound report",
-            "biometry report",
-            "anatomy scan",
-            "mid-trimester",
-            "second trimester",
-            "cardiovascular",
-            "cardiac screening",
-        ]
-        if any(k in t for k in scan_keywords):
-            return "SCAN"
-
         # ─── Final default ────────────────────────────────────────────────
-        # For audio/video with no keywords, default to SCAN but log it
-        # For PDFs, ALSO default to SCAN since in fetal medicine context,
-        # most reports are either SCAN, CMA, or SERUM (WES is less common as PDF)
+        # For audio/video/pdf with no clear keywords, default to SCAN
         if source in ("audio", "video", "pdf"):
             print(f"DEBUG ReportDetector: no keywords matched for {source} — defaulting SCAN")
             print(f"DEBUG ReportDetector: content preview: {text[:100]}")

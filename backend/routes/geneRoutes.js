@@ -6,24 +6,6 @@
 
 // const upload = multer({ dest: "uploads/" });
 
-// router.post(
-//   "/analyze/:caseId",
-//   upload.single("file"),
-//   geneController.startAnalysis
-// );
-
-// router.post(
-//   "/checklist/:caseId",
-//   geneController.loadChecklist
-// );
-
-// router.post(
-//   "/calculate/:caseId",
-//   geneController.calculatePP4
-// );
-
-// module.exports = router;
-
 const express = require("express");
 const router = express.Router();
 

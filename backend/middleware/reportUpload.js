@@ -51,7 +51,17 @@ const fileFilter = (req, file, cb) => {
     
     // RTF Documents
     "application/rtf",
-    "text/rtf"
+    "text/rtf",
+
+    // Image Files
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/gif",
+    "image/bmp",
+    "image/webp",
+    "image/tiff",
+    "image/svg+xml"
   ];
 
   if (allowedTypes.includes(file.mimetype)) {

@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const multer = require("multer");
 const path = require("path");
+const auth = require("../middleware/authMiddleware");
 const DoctorProfile = require("../models/doctorProfileModel");
 
 /* ── Multer config ── */
@@ -15,6 +16,28 @@ const upload = multer({ storage });
    GET  /doctor-profile/:doctorId
    Returns full profile (all fields)
 ═══════════════════════════════════════ */
+router.get("/profile", auth, async (req, res) => {
+  try {
+    const doctorId = req.user.id;
+    if (!doctorId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const profile = await DoctorProfile
+      .findOne({ doctorId })
+      .populate("doctorId", "email");
+
+    if (!profile) {
+      return res.status(404).json({ message: "Profile not found" });
+    }
+
+    res.json(profile);
+  } catch (err) {
+    console.error("GET /doctor-profile/profile error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 router.get("/:doctorId", async (req, res) => {
   try {
     const profile = await DoctorProfile

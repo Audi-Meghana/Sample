@@ -49,6 +49,36 @@ const caseSchema = new mongoose.Schema(
       type: String
     },
 
+    reportFileType: {
+      type: String
+    },
+
+    // 🧬 Gene Analysis Data
+    gene: {
+      type: String
+    },
+
+    variant: {
+      type: String
+    },
+
+    report_type: {
+      type: String,
+      enum: ["WES", "CMA", "SCAN", "SERUM"]
+    },
+
+    checklistItems: [{
+      type: String
+    }],
+
+    extractedData: {
+      type: mongoose.Schema.Types.Mixed
+    },
+
+    checklistMetadata: {
+      type: mongoose.Schema.Types.Mixed
+    },
+
     // 🧠 PP4 Analysis Result
     pp4: {
       rawScore: Number,
