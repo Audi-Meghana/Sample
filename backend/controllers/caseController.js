@@ -53,7 +53,7 @@ exports.createCase = async (req, res) => {
 exports.getDoctorCases = async (req, res) => {
   try {
     const doctorId = req.user.id;
-    const { search, status } = req.query;
+    const { search, status, includeCompleted } = req.query;
 
     let filter = { doctorId };
 
@@ -66,6 +66,12 @@ exports.getDoctorCases = async (req, res) => {
 
     if (status && status !== "All") {
       filter.status = status;
+    }
+
+    // includeCompleted:true means return all statuses; otherwise default is all (keep backwards compatibility)
+    // If front-end needs strict filtering, it can handle it by itself (recommended for Gene Analysis dropdown).
+    if (includeCompleted === "true") {
+      // no status restriction (includes Completed + all statuses)
     }
 
     const cases = await Case.find(filter).sort({ createdAt: -1 });

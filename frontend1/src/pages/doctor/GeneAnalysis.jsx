@@ -187,6 +187,7 @@ const CSS = `
 .cs-pill { padding:3px 10px; border-radius:999px; font-size:11px; font-weight:700; flex-shrink:0; }
 .cs-pill-u { background:#dbeafe; color:#1d4ed8; }
 .cs-pill-r { background:#fef3c7; color:#b45309; }
+.cs-pill-c { background:#d1fae5; color:#065f46; }
 .cs-arrow { color:#94a3b8; flex-shrink:0; transition:transform .2s; }
 .cs-box.cs-open .cs-arrow { transform:rotate(180deg); color:#7c3aed; }
 
@@ -663,8 +664,12 @@ function CaseSelect({ cases, value, onChange }) {
           )}
         </div>
         {selected && (
-          <span className={`cs-pill ${selected.status === "Under Review" ? "cs-pill-r" : "cs-pill-u"}`}>
-            {selected.status === "Under Review" ? "Under Review" : "Uploaded"}
+          <span className={`cs-pill ${
+            selected.status === "Under Review" ? "cs-pill-r" :
+            selected.status === "Completed" ? "cs-pill-c" : "cs-pill-u"
+          }`}>
+            {selected.status === "Under Review" ? "Under Review" :
+             selected.status === "Completed" ? "Completed" : "Uploaded"}
           </span>
         )}
         <ChevronDown size={16} className="cs-arrow"/>
@@ -694,8 +699,12 @@ function CaseSelect({ cases, value, onChange }) {
                   <div className="cs-item-name">{c.patientName}</div>
                   <div className="cs-item-id">{c.patientId}</div>
                 </div>
-                <span className={`cs-pill ${c.status === "Under Review" ? "cs-pill-r" : "cs-pill-u"}`}>
-                  {c.status === "Under Review" ? "Review" : "Uploaded"}
+                <span className={`cs-pill ${
+                  c.status === "Under Review" ? "cs-pill-r" :
+                  c.status === "Completed" ? "cs-pill-c" : "cs-pill-u"
+                }`}>
+                  {c.status === "Under Review" ? "Review" :
+                   c.status === "Completed" ? "Completed" : "Uploaded"}
                 </span>
               </div>
             ))}
@@ -791,13 +800,17 @@ export default function GeneAnalysis() {
     : !pp4Calculated ? 3
     : 4;
 
+  const visibleCases = isRecheck
+    ? cases
+    : cases.filter(c => c.status === "Under Review" || c.status === "Uploaded");
+
   useEffect(() => {
     const onR = () => setCollapsed(window.innerWidth <= 768);
     window.addEventListener("resize", onR);
     return () => window.removeEventListener("resize", onR);
   }, []);
 
-  // ✅ Fetch cases
+  // ✅ Fetch cases (all statuses from backend, then select in dropdown by mode)
   useEffect(() => {
     (async () => {
       try {
@@ -805,7 +818,7 @@ export default function GeneAnalysis() {
         const res = await axios.get("http://localhost:5000/api/cases", {
           headers: { Authorization: `Bearer ${token}` }
         });
-        setCases((res.data.cases||[]).filter(c=>c.status==="Uploaded"||c.status==="Under Review"||c.status==="Completed"));
+        setCases(res.data.cases || []);
       } catch(e) { console.error(e); }
     })();
   }, []);
@@ -1814,7 +1827,12 @@ export default function GeneAnalysis() {
                 {selectedCase && <CheckCircle size={18} color="var(--green)" style={{ marginLeft:"auto" }}/>}
               </div>
               <div className="g-card-body" style={{overflow:"visible"}}>
-                <CaseSelect cases={cases} value={selectedCase} onChange={setSelectedCase}/>
+                <CaseSelect cases={visibleCases} value={selectedCase} onChange={setSelectedCase}/>
+                {!isRecheck && (
+                  <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>
+                    Showing only incomplete cases (Under Review + Uploaded). Use Recheck route to include Completed.
+                  </div>
+                )}
               </div>
             </div>
 
