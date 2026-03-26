@@ -159,6 +159,15 @@ const CSS = `
 .dr-btn-g{display:inline-flex;align-items:center;gap:5px;background:#f6f4fe;color:#6d5acd;border:1px solid #d8d2f5;padding:7px 12px;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;font-family:'Figtree',sans-serif;transition:all .2s;}
 .dr-btn-g:hover{background:#ede9f8;}
 
+/* ── MOBILE ICON-ONLY ACTION BUTTONS ── */
+.dr-mob-icon-btn{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:9px;cursor:pointer;flex-shrink:0;transition:all .18s ease;border:1.5px solid;}
+.dr-mob-view-btn{background:#f0edfb;color:#6d5acd;border-color:#d5cff2;box-shadow:0 1px 4px rgba(109,90,205,.08);}
+.dr-mob-view-btn:hover{background:#6d5acd;color:#fff;border-color:#6d5acd;box-shadow:0 4px 14px rgba(109,90,205,.25);transform:translateY(-1px);}
+.dr-mob-view-btn:active{transform:scale(.97);}
+.dr-mob-recheck-btn{background:#ecfdf5;color:#10b981;border-color:#a7f3d0;box-shadow:0 1px 4px rgba(16,185,129,.08);}
+.dr-mob-recheck-btn:hover{background:#10b981;color:#fff;border-color:#10b981;box-shadow:0 4px 14px rgba(16,185,129,.25);transform:translateY(-1px);}
+.dr-mob-recheck-btn:active{transform:scale(.97);}
+
 /* ── MISC ── */
 .dr-empty{text-align:center;padding:40px 20px;}
 .dr-name-skeleton{display:inline-block;width:120px;height:22px;border-radius:6px;background:linear-gradient(90deg,#e8e4f8,#d5cff2,#e8e4f8);background-size:200% 100%;animation:skeletonPulse 1.4s ease infinite;vertical-align:middle;}
@@ -427,7 +436,7 @@ export default function DoctorDashboard() {
                   </div>
                 ) : (<>
 
-                  {/* Desktop */}
+                  {/* Desktop — unchanged */}
                   <div className="dr-desk-cases">
                     {cases.slice(0, 5).map((c, idx) => (
                       <div key={c._id} className="dr-dcase" style={{ animationDelay:`${idx * 0.05}s` }}>
@@ -477,7 +486,7 @@ export default function DoctorDashboard() {
                     ))}
                   </div>
 
-                  {/* Mobile */}
+                  {/* Mobile — icon-only buttons for View and Recheck */}
                   <div className="dr-mob-cases">
                     {cases.slice(0, 5).map(c => (
                       <div key={c._id} className="dr-mcase">
@@ -488,13 +497,23 @@ export default function DoctorDashboard() {
                           </div>
                           <div className="dr-mcase-name">{c.patientName}</div>
                         </div>
-                        <div style={{ flexShrink:0, display:"flex", flexDirection:"column", gap:"6px" }} onClick={e => e.stopPropagation()}>
-                          <button className="dr-vbtn" onClick={() => handleView(c._id)}>
-                            <Eye size={12}/> View
+                        <div style={{ flexShrink:0, display:"flex", alignItems:"center", gap:"7px" }} onClick={e => e.stopPropagation()}>
+                          {/* View — icon only on mobile */}
+                          <button
+                            className="dr-mob-icon-btn dr-mob-view-btn"
+                            title="View Details"
+                            onClick={() => handleView(c._id)}
+                          >
+                            <Eye size={15}/>
                           </button>
+                          {/* Recheck — icon only on mobile */}
                           {c.status === "Completed" && (
-                            <button className="dr-vbtn dr-recheck-btn" onClick={() => handleRecheck(c._id)}>
-                              <RefreshCw size={12}/> Recheck
+                            <button
+                              className="dr-mob-icon-btn dr-mob-recheck-btn"
+                              title="Recheck"
+                              onClick={() => handleRecheck(c._id)}
+                            >
+                              <RefreshCw size={15}/>
                             </button>
                           )}
                         </div>

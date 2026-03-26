@@ -194,7 +194,6 @@ const ChecklistCard = ({ onSubmit, checklistData, gene, reportType }) => {
 
   const isNonWES = gene === "NOT_APPLICABLE" || gene === "UNKNOWN" || gene === "QUOTA_EXHAUSTED";
 
-  // ✅ For WES: regular checklist items
   const cats = !isNonWES ? [
     ...(checklistData?.core_prenatal_findings?.length ? [{ title:"Core Findings",       items:checklistData.core_prenatal_findings }] : []),
     ...(checklistData?.supportive_findings?.length    ? [{ title:"Supportive Findings", items:checklistData.supportive_findings }]    : []),
@@ -226,7 +225,6 @@ const ChecklistCard = ({ onSubmit, checklistData, gene, reportType }) => {
   const clinicalFields = clinicalFieldsMap[reportType] || [];
   const clinicalTotal = clinicalFields.length;
 
-  // ✅ Non-WES: auto-submit when all clinical fields filled
   useEffect(() => {
     if (isNonWES && clinicalTotal > 0) {
       const allFilled = clinicalFields.every(f => checklist[f.name]);
@@ -237,7 +235,6 @@ const ChecklistCard = ({ onSubmit, checklistData, gene, reportType }) => {
     }
   }, [checklist, clinicalTotal, submitted, isNonWES, clinicalFields]);
 
-  // ✅ WES: auto-submit when all checklist items filled
   const total = cats.reduce((a,c)=>a+c.items.length, 0);
   useEffect(() => {
     if (!isNonWES && Object.keys(checklist).length===total && total>0 && !submitted) {
@@ -266,7 +263,6 @@ const ChecklistCard = ({ onSubmit, checklistData, gene, reportType }) => {
         <Activity size={12} color={T.p600}/> {isNonWES ? "Clinical Findings" : "Clinical Checklist"}
       </div>
 
-      {/* ✅ Non-WES: Clinical Findings Form */}
       {isNonWES && (
         <div style={{padding:"10px"}}>
           {clinicalFields.map((field,fi) => (
@@ -288,7 +284,6 @@ const ChecklistCard = ({ onSubmit, checklistData, gene, reportType }) => {
         </div>
       )}
 
-      {/* ✅ WES: Regular Checklist Items */}
       {!isNonWES && cats.map((cat,ci) => (
         <div key={ci}>
           <div className="dc-cat-hdr" onClick={()=>setOpenCat(openCat===ci?null:ci)}
@@ -319,7 +314,6 @@ const ChecklistCard = ({ onSubmit, checklistData, gene, reportType }) => {
         </div>
       ))}
 
-      {/* ✅ Non-WES: Display-only Checklist Items */}
       {isNonWES && checklistData && (
         <>
           {[
@@ -391,7 +385,6 @@ export default function DoctorChatbot() {
   useEffect(() => { fetchConversations(); }, []);
   useEffect(() => { chatEndRef.current?.scrollIntoView({behavior:"smooth"}); }, [messages]);
 
-  // Cleanup Web Speech API and recording on unmount or conversation change
   useEffect(() => {
     return () => {
       console.log("[Chatbot Voice] Cleaning up resources");
@@ -420,7 +413,6 @@ export default function DoctorChatbot() {
       return;
     }
     
-    // Validate audio blob before sending
     if (audioBlob && audioBlob.size === 0) {
       console.error("[Chatbot Voice] Error: Audio blob is empty");
       alert("Voice recording error: No audio captured. Please try recording again.");
@@ -460,14 +452,12 @@ export default function DoctorChatbot() {
         if (cA) {
           console.log("[Chatbot Voice] Appending audio blob. Size:", cA.size);
           fd.append("file",cA,"recorded.webm");
-          // 🎤 Use live transcription text if available (Web Speech API)
-          // Otherwise backend will use Whisper transcription from audio
           if (liveTranscript) {
             console.log("[Chatbot Voice] Using live transcription text for analysis");
             fd.append("voice_transcription", liveTranscript);
           }
         }
-        fd.append("text",cI||liveTranscript);  // Use voice transcription if no manual text entered
+        fd.append("text",cI||liveTranscript);
         fd.append("gestation",20);
         fd.append("conversationId",currentChatId);
         if (cF) { fd.append("fileName", cF.name); fd.append("fileSize", cF.size); }
@@ -479,7 +469,6 @@ export default function DoctorChatbot() {
       const gene = response.data?.data?.genetic?.gene;
       if (!gene) { setMessages(p=>[...p,{sender:"ai",text:"Gene not detected in input."}]); setIsAnalyzing(false); return; }
       
-      // ✅ Extract report type for non-WES files
       const reportType = response.data?.data?.report_type;
       
       setMessages(p=>[...p,{sender:"ai",type:"analysis-complete",gene,reportType}]);
@@ -489,10 +478,8 @@ export default function DoctorChatbot() {
       const cr = await API.post("/checklist", checklistPayload);
       if (!cr.data.success) { setMessages(p=>[...p,{sender:"ai",text:cr.data.message||"Checklist generation failed."}]); setIsAnalyzing(false); return; }
       
-      // 🎯 Format checklist data properly (handle both WES and non-WES formats)
       let checklistData = cr.data.data?.checklist || cr.data.data;
       
-      // If checklist is an array (from WES), transform it to object format
       if (Array.isArray(checklistData)) {
         console.log("[Chatbot] Formatting checklist from array to object format");
         const grouped = {};
@@ -501,7 +488,6 @@ export default function DoctorChatbot() {
           if (!grouped[cat]) grouped[cat] = [];
           grouped[cat].push(item.task || String(item));
         });
-        // Map to expected format for ChecklistCard
         checklistData = {
           core_prenatal_findings: grouped["Core Findings"] || grouped["core_prenatal_findings"] || [],
           supportive_findings: grouped["Supportive Findings"] || grouped["supportive_findings"] || [],
@@ -520,13 +506,13 @@ export default function DoctorChatbot() {
     setIsAnalyzing(false);
   };
 
+  // ── CHANGE 1: Auto-close panel on mobile after creating new conversation ──
   const handleNew = async () => {
     try {
       const r = await API.post("/chat/conversation");
       await fetchConversations();
       setCurrentChatId(r.data._id);
       setMessages([]);
-      // Clear voice recording state
       setInput("");
       setFile(null);
       setAudioBlob(null);
@@ -534,15 +520,13 @@ export default function DoctorChatbot() {
       setInterimText("");
       setIsRecording(false);
       recognitionRef.current?.stop();
-      if (isMobile) setPanelOpen(false);
-     
+      setPanelOpen(false); // always close panel after new chat (works for both mobile and desktop)
     } catch {}
   };
 
   const handleMic = async () => {
     if (!isRecording) {
       try {
-        // Request microphone and start MediaRecorder
         const stream = await navigator.mediaDevices.getUserMedia({audio:true});
         const mediaRec = new MediaRecorder(stream);
         recorderRef.current = mediaRec;
@@ -561,7 +545,6 @@ export default function DoctorChatbot() {
         setIsRecording(true);
         setLiveTranscript("");
         
-        // Start Web Speech API for live transcription
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (SpeechRecognition) {
           const recognition = new SpeechRecognition();
@@ -592,7 +575,6 @@ export default function DoctorChatbot() {
         alert("Microphone access denied. Please allow microphone permissions.");
       }
     } else {
-      // Stop recording
       console.log("[Chatbot Voice] Stopping microphone");
       recognitionRef.current?.stop();
       setInterimText("");
@@ -613,10 +595,8 @@ export default function DoctorChatbot() {
   const calcPP4 = async (data, gene, reportType) => {
     const isNonWES = gene === "NOT_APPLICABLE" || gene === "UNKNOWN" || gene === "QUOTA_EXHAUSTED";
 
-    // ✅ Non-WES: Clinical Risk Scoring
     if (isNonWES) {
       try {
-        // Map doctor's selections to clinical findings format (same as GeneAnalysis)
         const clinicalFindings = {};
         if (reportType === "CMA") {
           clinicalFindings.cnv_result = (data.cnv_result || "").toLowerCase();
@@ -646,7 +626,6 @@ export default function DoctorChatbot() {
       return;
     }
 
-    // ✅ WES: PP4 Scoring
     try {
       const sel={core:{},supportive:{},negative:{}};
       Object.entries(data).forEach(([k,v])=>{sel.core[k]=v;});
@@ -695,7 +674,6 @@ export default function DoctorChatbot() {
       <div key={idx} className="dc-msg"
         style={{display:"flex",justifyContent:isDoc?"flex-end":"flex-start",alignItems:"flex-end",gap:"8px"}}>
 
-        {/* AI avatar */}
         {!isDoc && (
           <div style={{width:"32px",height:"32px",borderRadius:"10px",background:`linear-gradient(145deg,${T.p600},${T.p500})`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,boxShadow:`0 3px 10px rgba(124,58,237,.28)`}}>
             <Dna size={14} color="#fff"/>
@@ -704,7 +682,6 @@ export default function DoctorChatbot() {
 
         <div className={isDoc?"dc-bubble-doc":"dc-bubble-ai"} style={isDoc?docBubble:aiBubble}>
 
-          {/* ── Doctor: file attachment card (separated from text) ── */}
           {isDoc && msg.file && (
             <div className="dc-att-card">
               <div className="dc-att-icon">
@@ -725,7 +702,6 @@ export default function DoctorChatbot() {
             </div>
           )}
 
-          {/* ── Doctor: voice recording card ── */}
           {isDoc && msg.audio && (
             <div className="dc-att-card" style={{background:"rgba(255,255,255,.10)"}}>
               <div className="dc-att-icon" style={{background:"rgba(255,255,255,.15)"}}>
@@ -742,17 +718,14 @@ export default function DoctorChatbot() {
             </div>
           )}
 
-          {/* ── Doctor: text message (visually separated from file card) ── */}
           {isDoc && msg.text && (
             <div className={msg.file || msg.audio ? "dc-att-text" : ""}>
               {msg.text}
             </div>
           )}
 
-          {/* ── AI: plain text ── */}
           {!isDoc && msg.text && <span>{msg.text}</span>}
 
-          {/* ── AI: loading ── */}
           {msg.type==="loading" && (
             <div style={{display:"flex",alignItems:"center",gap:"10px",padding:"10px 14px",background:T.p50,border:`1px solid ${T.p200}`,borderRadius:"12px",color:T.p600,fontSize:"13px",fontWeight:600}}>
               <div style={{width:"15px",height:"15px",borderRadius:"50%",border:`2px solid ${T.p200}`,borderTopColor:T.p600,animation:"spin .7s linear infinite",flexShrink:0}}/>
@@ -760,7 +733,6 @@ export default function DoctorChatbot() {
             </div>
           )}
 
-          {/* ── AI: analysis complete ── */}
           {msg.type==="analysis-complete" && (
             <div style={{borderRadius:"12px",overflow:"hidden",border:`1px solid ${T.p200}`,background:T.white,boxShadow:`0 4px 16px rgba(124,58,237,.07)`}}>
               <div style={{padding:"10px 14px",background:`linear-gradient(135deg,${T.p700},${T.p500})`,color:"#fff",fontSize:"12px",fontWeight:800,letterSpacing:".5px",display:"flex",alignItems:"center",gap:"6px"}}>
@@ -775,12 +747,10 @@ export default function DoctorChatbot() {
             </div>
           )}
 
-          {/* ── AI: checklist ── */}
           {msg.type==="checklist" && (
             <ChecklistCard onSubmit={(d)=>handleChecklistSubmit(d,msg.gene,msg.reportType)} checklistData={msg.checklistData} gene={msg.gene} reportType={msg.reportType}/>
           )}
 
-          {/* ── Doctor: checklist summary ── */}
           {msg.type==="checklist-summary" && (
             <div style={{background:T.p50,border:`1px solid ${T.p200}`,borderRadius:"10px",padding:"10px 13px"}}>
               <div style={{fontSize:"11px",fontWeight:800,color:T.p600,marginBottom:"7px",textTransform:"uppercase",letterSpacing:".5px"}}>Checklist Submitted</div>
@@ -794,8 +764,6 @@ export default function DoctorChatbot() {
             </div>
           )}
 
-          {/* ── AI: PP4 result ── */}
-          {/* ── AI: clinical risk (non-WES) ── */}
           {msg.type==="clinical-risk" && (()=>{
             const risk = msg.riskData;
             const finalScore = risk?.pp4_result?.final_score ?? risk?.final_score ?? 0;
@@ -805,30 +773,25 @@ export default function DoctorChatbot() {
             const scoreType = risk?.pp4_result?.score_type ?? "Clinical Score";
             const summary = risk?.summaries?.doctor_summary ?? risk?.doctor_summary ?? "";
             
-            // Parse summary for interpretation and recommended action
             const interp = summary.match(/Interpretation:(.*?)(Recommended Action:|$)/s);
             const recom = summary.match(/Recommended Action:(.*)/s);
             
-            // Color coding based on risk level
             const riskStyle={
               "Low Risk":     {bg:"rgba(34,197,94,.08)",bd:"1px solid rgba(34,197,94,.3)",c:"#22c55e"},
               "Moderate Risk":{bg:"rgba(245,158,11,.08)",bd:"1px solid rgba(245,158,11,.3)",c:"#f59e0b"},
             }[riskLevel]||{bg:"rgba(239,68,68,.08)",bd:"1px solid rgba(239,68,68,.3)",c:"#ef4444"};
             
-            // Score bar percentage (0-10 scale)
             const scoreBarWidth = Math.min(100, (finalScore / 10) * 100);
             
             return (
               <div className="dc-pp4-panel" style={{width:"100%",maxWidth:"560px"}}>
                 <div style={{background:T.white,border:`1px solid ${T.border}`,borderRadius:"16px",overflow:"hidden",boxShadow:"0 8px 32px rgba(0,0,0,.08)"}}>
-                  {/* Header */}
                   <div style={{padding:"14px 20px",background:`linear-gradient(135deg,${T.p700},#9333ea)`,color:"#fff",fontSize:"13px",fontWeight:800,display:"flex",alignItems:"center",gap:"8px"}}>
                     <BarChart2 size={14}/>
                     <span>Clinical Risk Score</span>
                     <span style={{fontSize:"11px",fontWeight:600,marginLeft:"auto",opacity:0.8}}>Clinical assessment based on {msg.reportType || msg.gene} findings</span>
                   </div>
                   
-                  {/* Score boxes: Raw | Multiplier | Final */}
                   <div style={{display:"flex",gap:"10px",padding:"16px"}}>
                     <div style={{flex:1,background:T.p50,border:`1px solid ${T.p200}`,borderRadius:"12px",padding:"12px 8px",textAlign:"center"}}>
                       <div style={{fontSize:"22px",fontWeight:900,color:T.p600,marginBottom:"2px"}}>{rawScore}</div>
@@ -844,7 +807,6 @@ export default function DoctorChatbot() {
                     </div>
                   </div>
                   
-                  {/* Score bar visualization */}
                   <div style={{padding:"0 16px 12px"}}>
                     <div style={{marginBottom:"6px",display:"flex",justifyContent:"space-between",fontSize:"10px",color:T.muted,fontWeight:600}}>
                       <span>0 — Low</span>
@@ -852,16 +814,10 @@ export default function DoctorChatbot() {
                       <span>10 — High</span>
                     </div>
                     <div style={{height:"6px",background:T.light,borderRadius:"3px",overflow:"hidden"}}>
-                      <div style={{
-                        height:"100%",
-                        width:`${scoreBarWidth}%`,
-                        background:`linear-gradient(90deg,#22c55e,#f59e0b,#ef4444)`,
-                        transition:"width .4s ease"
-                      }}/>
+                      <div style={{height:"100%",width:`${scoreBarWidth}%`,background:`linear-gradient(90deg,#22c55e,#f59e0b,#ef4444)`,transition:"width .4s ease"}}/>
                     </div>
                   </div>
                   
-                  {/* Badges */}
                   <div style={{display:"flex",gap:"8px",padding:"0 16px 14px",flexWrap:"wrap"}}>
                     <div style={{padding:"5px 11px",borderRadius:"16px",fontSize:"11px",fontWeight:700,background:T.p50,border:`1px solid ${T.p200}`,color:T.p600}}>
                       <Activity size={11} style={{display:"inline",marginRight:"4px"}}/>{scoreType.replace(/_/g," ")}
@@ -871,9 +827,7 @@ export default function DoctorChatbot() {
                     </div>
                   </div>
                   
-                  {/* Clinical Summary */}
                   <div style={{margin:"0 16px 16px",background:"#fafafa",border:`1px solid ${T.border}`,borderRadius:"12px",padding:"16px",lineHeight:1.7}}>
-                    {/* Main Summary */}
                     <div style={{marginBottom:"14px"}}>
                       <div style={{fontSize:"11px",fontWeight:800,color:T.p600,letterSpacing:"1.2px",textTransform:"uppercase",marginBottom:"10px",display:"flex",alignItems:"center",gap:"7px"}}>
                         <Heart size={14} color={T.p600}/> Clinical Summary
@@ -881,7 +835,6 @@ export default function DoctorChatbot() {
                       <div style={{fontSize:"13px",color:T.text,lineHeight:1.7,fontWeight:500}}>{summary.split("Interpretation:")[0]?.trim() || "Clinical assessment completed."}</div>
                     </div>
                     
-                    {/* Interpretation */}
                     {interp?.[1]?.trim() && (
                       <div style={{marginBottom:"14px",paddingTop:"12px",paddingBottom:"12px",borderTop:`1px solid ${T.border}`,borderBottom:`1px solid ${T.border}`}}>
                         <div style={{fontSize:"11px",fontWeight:800,color:T.p600,letterSpacing:"1.2px",textTransform:"uppercase",marginBottom:"8px"}}>📋 Interpretation</div>
@@ -889,7 +842,6 @@ export default function DoctorChatbot() {
                       </div>
                     )}
                     
-                    {/* Recommended Action */}
                     {recom?.[1]?.trim() && (
                       <div style={{paddingTop:"12px"}}>
                         <div style={{fontSize:"11px",fontWeight:800,color:riskStyle.c,letterSpacing:"1.2px",textTransform:"uppercase",marginBottom:"8px",display:"flex",alignItems:"center",gap:"6px"}}>
@@ -905,7 +857,6 @@ export default function DoctorChatbot() {
             );
           })()}
 
-          {/* ── AI: PP4 result ── */}
           {msg.type==="pp4" && (()=>{
             const pp4=msg.pp4Data;
             const sum=pp4?.summaries?.doctor_summary||"";
@@ -1023,15 +974,7 @@ export default function DoctorChatbot() {
           {/* ══ TOPBAR ══ */}
           <div style={{height:"64px",flexShrink:0,background:T.white,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",padding:"0 16px",gap:"10px",boxShadow:"0 1px 0 rgba(0,0,0,.05), 0 2px 12px rgba(0,0,0,.04)",zIndex:20,position:"relative"}}>
 
-            {/* Mobile: Home button left */}
-            {isMobile && (
-              <button onClick={() => navigate("/dashboard")} title="Go to Home"
-                style={{width:"38px",height:"38px",borderRadius:"11px",background:"transparent",border:`1.5px solid ${T.border}`,color:T.sub,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",transition:"all .18s",flexShrink:0}}>
-                <Home size={18}/>
-              </button>
-            )}
-
-            {/* Desktop: history panel toggle */}
+            {/* ── CHANGE 2: Mobile Home icon removed — desktop-only history toggle ── */}
             {!isMobile && (
               <button className="dc-ham" onClick={()=>setPanelOpen(v=>!v)} title="Chat history"
                 style={{width:"38px",height:"38px",background:panelOpen?T.p100:"transparent",border:`1.5px solid ${panelOpen?T.p200:T.border}`,borderRadius:"11px",color:panelOpen?T.p600:T.sub,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",transition:"all .18s",flexShrink:0}}>
@@ -1058,7 +1001,7 @@ export default function DoctorChatbot() {
             {/* Right side controls */}
             <div style={{display:"flex",alignItems:"center",gap:"8px",flexShrink:0}}>
 
-              {/* Mobile: history toggle right */}
+              {/* Mobile: history toggle on right side only */}
               {isMobile && (
                 <button className="dc-ham" onClick={()=>setPanelOpen(v=>!v)} title="Chat history"
                   style={{width:"38px",height:"38px",background:panelOpen?T.p100:"transparent",border:`1.5px solid ${panelOpen?T.p200:T.border}`,borderRadius:"11px",color:panelOpen?T.p600:T.sub,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",transition:"all .18s",flexShrink:0}}>
@@ -1072,7 +1015,7 @@ export default function DoctorChatbot() {
                 Online
               </div>
 
-              {/* ── Profile avatar → navigate to /profile ── */}
+              {/* Profile avatar */}
               <div
                 className="dc-profile-btn"
                 title="View Profile"
@@ -1123,7 +1066,6 @@ export default function DoctorChatbot() {
               {/* ── Input bar ── */}
               <div className="dc-input-wrap" style={{background:T.white,borderTop:`1px solid ${T.border}`,padding:"10px 20px 16px",boxShadow:"0 -2px 16px rgba(0,0,0,.04)",flexShrink:0}}>
 
-                {/* File preview */}
                 {file && (
                   <div style={{display:"flex",alignItems:"center",gap:"10px",background:"#f5f3ff",border:`1px solid ${T.p200}`,borderRadius:"12px",padding:"9px 13px",marginBottom:"8px"}}>
                     <div style={{width:"38px",height:"38px",borderRadius:"10px",background:`linear-gradient(135deg,${T.p600},${T.p500})`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
@@ -1146,10 +1088,8 @@ export default function DoctorChatbot() {
                   </div>
                 )}
 
-                {/* Audio preview + live transcription */}
                 {(isRecording || audioBlob || liveTranscript) && (
                   <div style={{display:"flex",flexDirection:"column",gap:"8px",background:T.p50,border:`1px solid ${T.p200}`,borderRadius:"12px",padding:"12px",marginBottom:"8px"}}>
-                    {/* Recording status */}
                     {isRecording && (
                       <div style={{display:"flex",alignItems:"center",gap:"8px",color:T.p600,fontSize:"13px",fontWeight:600}}>
                         <div style={{width:"10px",height:"10px",background:T.red,borderRadius:"50%",animation:"pulse 1s infinite"}}/>
@@ -1157,7 +1097,6 @@ export default function DoctorChatbot() {
                       </div>
                     )}
                     
-                    {/* Live transcription display */}
                     {(liveTranscript || interimText) && (
                       <div style={{background:"#fff",border:`1px solid ${T.border}`,borderRadius:"8px",padding:"10px",fontSize:"13px",color:T.text,lineHeight:"1.5"}}>
                         <div style={{fontWeight:500,color:T.p600,marginBottom:"4px"}}>Transcription:</div>
@@ -1165,7 +1104,6 @@ export default function DoctorChatbot() {
                       </div>
                     )}
                     
-                    {/* Audio playback (after recording stopped) */}
                     {audioBlob && (
                       <div style={{display:"flex",alignItems:"center",gap:"10px",background:"#fff",border:`1px solid ${T.border}`,borderRadius:"10px",padding:"10px"}}>
                         <div style={{width:"36px",height:"36px",borderRadius:"8px",background:`linear-gradient(135deg,${T.p600},${T.p500})`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
@@ -1205,7 +1143,6 @@ export default function DoctorChatbot() {
                     onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();handleSend();}}}
                     style={{flex:1,background:"none",border:"none",outline:"none",fontSize:"14px",color:T.text,padding:"9px 8px",height:"44px",fontFamily:"'Plus Jakarta Sans',sans-serif"}}
                   />
-                  {/* Mic — red pulse when recording */}
                   <button type="button" className={`dc-mic-btn${isRecording?" dc-recording":""}`}
                     style={{width:"42px",height:"42px",borderRadius:"11px",flexShrink:0,
                       background:isRecording?"#fef2f2":"#f3f4f6",
@@ -1221,7 +1158,6 @@ export default function DoctorChatbot() {
                   </button>
                 </div>
 
-                {/* Recording indicator */}
                 {isRecording && (
                   <div style={{display:"flex",alignItems:"center",gap:"7px",marginTop:"7px",padding:"6px 12px",background:"#fef2f2",border:"1px solid #fca5a5",borderRadius:"8px"}}>
                     <span style={{width:"7px",height:"7px",borderRadius:"50%",background:T.red,display:"inline-block",animation:"pulseRed 1s infinite"}}/>

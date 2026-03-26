@@ -106,7 +106,15 @@ const CSS = `
 .cp-recheck-btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:9px;background:#10b981;color:#fff;border:1.5px solid #10b981;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;font-family:'Figtree',sans-serif;transition:all .18s ease;box-shadow:0 1px 4px rgba(16,185,129,.08);}
 .cp-recheck-btn:hover{background:#059669;border-color:#059669;box-shadow:0 4px 14px rgba(16,185,129,.25);transform:translateY(-1px);}
 .cp-recheck-btn:active{transform:scale(.97);}
-.cp-recheck-btn-mobile{display:inline-flex;align-items:center;gap:4px;padding:6px 10px;border-radius:7px;font-size:11px;}
+
+/* ── MOBILE ICON-ONLY ACTION BUTTONS ── */
+.cp-mob-icon-btn{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:9px;cursor:pointer;flex-shrink:0;transition:all .18s ease;border:1.5px solid;}
+.cp-mob-view-btn{background:#f0edfb;color:#6d5acd;border-color:#d5cff2;box-shadow:0 1px 4px rgba(109,90,205,.08);}
+.cp-mob-view-btn:hover{background:#6d5acd;color:#fff;border-color:#6d5acd;box-shadow:0 4px 14px rgba(109,90,205,.25);transform:translateY(-1px);}
+.cp-mob-view-btn:active{transform:scale(.97);}
+.cp-mob-recheck-btn{background:#ecfdf5;color:#10b981;border-color:#a7f3d0;box-shadow:0 1px 4px rgba(16,185,129,.08);}
+.cp-mob-recheck-btn:hover{background:#10b981;color:#fff;border-color:#10b981;box-shadow:0 4px 14px rgba(16,185,129,.25);transform:translateY(-1px);}
+.cp-mob-recheck-btn:active{transform:scale(.97);}
 
 /* ── MOBILE CASE ROW ── */
 .cp-mcase{background:#fbfaff;border:1.5px solid #ebe7f8;border-radius:14px;padding:13px 14px;margin-bottom:9px;display:flex;align-items:center;justify-content:space-between;gap:12px;position:relative;overflow:hidden;transition:all .18s;}
@@ -189,7 +197,6 @@ const badgeClass = (s) => ({
 const PID_RE   = /^[A-Za-z0-9\-_]+$/;
 const NAME_RE  = /^[A-Za-z\s'.,-]+$/;
 
-// ── CHANGED: added existingIds param for duplicate check ──
 function validate({ patientId, patientName, gestationalAge }, existingIds = []) {
   const e = {};
   if (!patientId.trim())                                                    e.patientId = "Patient ID is required.";
@@ -236,7 +243,6 @@ function ConfirmDelete({ caseName, onCancel, onConfirm, deleting }) {
 /* ══════════════════
    CREATE FORM
 ══════════════════ */
-// ── CHANGED: added existingIds = [] prop ──
 function CreateForm({ patientId, setPatientId, patientName, setPatientName,
                       gestationalAge, setGestationalAge, consanguinity, setConsanguinity,
                       mode, setMode, existingIds = [], onSubmit }) {
@@ -245,7 +251,6 @@ function CreateForm({ patientId, setPatientId, patientName, setPatientName,
   const [touched, setTouched] = useState({});
   const [shake,   setShake]   = useState(false);
 
-  // ── CHANGED: pass existingIds into validate ──
   const revalidate = (overrides = {}) => {
     const errs = validate({
       patientId:      overrides.patientId      ?? patientId,
@@ -263,7 +268,6 @@ function CreateForm({ patientId, setPatientId, patientName, setPatientName,
     if (touched[field]) revalidate({ [field]: value });
   };
 
-  /* Block non-numeric and >43 live while typing */
   const handleGAKeyDown = (e) => {
     const safe = ["Backspace","Delete","ArrowLeft","ArrowRight","Tab","Enter"];
     if (safe.includes(e.key)) return;
@@ -558,7 +562,6 @@ export default function Cases() {
                   </button>
                 </div>
                 <div className="cp-create-form-wrap" style={{display:showCreateForm||window.innerWidth>768?"block":"none"}}>
-                  {/* ── CHANGED: pass existingIds derived from cases list ── */}
                   <CreateForm
                     patientId={patientId}           setPatientId={setPatientId}
                     patientName={patientName}       setPatientName={setPatientName}
@@ -615,7 +618,7 @@ export default function Cases() {
                     <p style={{fontSize:"12px",color:"#9ca3af",margin:0}}>Try adjusting your search or filters</p>
                   </div>
                 ) : (<>
-                  {/* Desktop */}
+                  {/* Desktop — unchanged */}
                   <div className="cp-desk-cases">
                     {paginated.map(c => (
                       <div key={c._id} className="cp-dcase">
@@ -644,7 +647,8 @@ export default function Cases() {
                       </div>
                     ))}
                   </div>
-                  {/* Mobile */}
+
+                  {/* Mobile — icon-only buttons for View, Recheck, Delete */}
                   <div className="cp-mob-cases">
                     {paginated.map(c => (
                       <div key={c._id} className="cp-mcase">
@@ -656,11 +660,32 @@ export default function Cases() {
                           <div className="cp-mcase-name">{c.patientName}</div>
                         </div>
                         <div style={{display:"flex",alignItems:"center",gap:"7px",flexShrink:0}} onClick={e=>e.stopPropagation()}>
-                          <button className="cp-mv-btn" onClick={()=>openDetails(c._id)}><Eye size={12}/> View</button>
+                          {/* View — icon only on mobile */}
+                          <button
+                            className="cp-mob-icon-btn cp-mob-view-btn"
+                            title="View Details"
+                            onClick={()=>openDetails(c._id)}
+                          >
+                            <Eye size={15}/>
+                          </button>
+                          {/* Recheck — icon only on mobile */}
                           {c.status === "Completed" && (
-                            <button className="cp-recheck-btn cp-recheck-btn-mobile" onClick={()=>handleRecheck(c._id)}><RefreshCw size={12}/> Recheck</button>
+                            <button
+                              className="cp-mob-icon-btn cp-mob-recheck-btn"
+                              title="Recheck"
+                              onClick={()=>handleRecheck(c._id)}
+                            >
+                              <RefreshCw size={15}/>
+                            </button>
                           )}
-                          <button className="cp-del-btn" title="Delete case" onClick={()=>setDeleteTarget({id:c._id,name:c.patientName||c.patientId})}><Trash2 size={13}/></button>
+                          {/* Delete */}
+                          <button
+                            className="cp-del-btn"
+                            title="Delete case"
+                            onClick={()=>setDeleteTarget({id:c._id,name:c.patientName||c.patientId})}
+                          >
+                            <Trash2 size={14}/>
+                          </button>
                         </div>
                       </div>
                     ))}
