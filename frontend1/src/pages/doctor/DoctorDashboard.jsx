@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/exhaustive-deps */
 import { useState, useEffect } from "react";
 import Sidebar from "../../components/doctor/Sidebar";
 import Topbar from "../../components/doctor/Topbar";
