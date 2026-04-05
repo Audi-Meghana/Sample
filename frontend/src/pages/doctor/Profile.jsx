@@ -12,6 +12,14 @@ import {
   ChevronLeft, Edit3, LogOut,
 } from "lucide-react";
 
+// Helper function to get base URL for uploads
+const getBaseUrl = () => {
+  const apiBase = import.meta.env.VITE_API_BASE_URL || (process.env.NODE_ENV === 'production'
+    ? "https://parental-ai-backend.onrender.com/api"
+    : "http://localhost:3000/api");
+  return apiBase.replace('/api', '');
+};
+
 /* ─── Inject CSS once ─── */
 const STYLE_ID = "profile-styles-v3";
 const CSS = `
@@ -245,7 +253,7 @@ export default function Profile() {
         consultFee:    d.consultFee    ?? "",
       });
       if (d.profileImage)
-        setPreviewImage(`http://localhost:3000/uploads/${d.profileImage}`);
+        setPreviewImage(`${getBaseUrl()}/uploads/${d.profileImage}`);
     } catch(err) { console.error("FETCH PROFILE ERROR:", err); }
   };
 
@@ -296,7 +304,7 @@ export default function Profile() {
         consultFee:    saved.consultFee    ?? f.consultFee,
       }));
       if (saved.profileImage)
-        setPreviewImage(`http://localhost:3000/uploads/${saved.profileImage}`);
+        setPreviewImage(`${getBaseUrl()}/uploads/${saved.profileImage}`);
 
       setProfileImage(null); setIsEditing(false);
       setToast(true); setTimeout(() => setToast(false), 3000);

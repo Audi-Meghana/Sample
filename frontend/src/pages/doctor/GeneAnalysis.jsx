@@ -814,10 +814,7 @@ export default function GeneAnalysis() {
   useEffect(() => {
     (async () => {
       try {
-        const token = localStorage.getItem("token");
-        const res = await axios.get("http://localhost:3000/api/cases", {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        const res = await API.get("/cases");
         setCases(res.data.cases || []);
       } catch(e) { console.error(e); }
     })();
