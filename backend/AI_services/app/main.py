@@ -22,6 +22,9 @@ ai = ClinicalAIService(
 from app.routes.dictation import router
 app.include_router(router)
 
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "service": "FastAPI AI Service"}
 
 # =========================
 # MEDICAL KEYWORD CHECKER
