@@ -29,14 +29,14 @@ def _load_datasets():
         model_data = joblib.load(str(pkl_path))
         kb_data    = model_data.get("kb_data", {})
         clinvar_df = model_data.get("clinvar_df", pd.DataFrame())
-        logger.info(f"✅ PKL loaded: {len(kb_data)} genes")
+        logger.info(f"[OK] PKL loaded: {len(kb_data)} genes")
     except Exception as e:
         logger.warning(f"PKL load failed: {e}")
 
     try:
         hpo_path = BASE_DIR / "datasets" / "prenatal_hpo_phenotypes.csv"
         hpo_df   = pd.read_csv(str(hpo_path))
-        logger.info(f"✅ HPO loaded: {len(hpo_df)} phenotypes")
+        logger.info(f"[OK] HPO loaded: {len(hpo_df)} phenotypes")
     except Exception as e:
         logger.warning(f"HPO load failed: {e}")
 

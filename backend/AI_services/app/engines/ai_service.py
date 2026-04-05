@@ -16,9 +16,9 @@ try:
         generate_serum_checklist
     )
     _non_wes_available = True
-    print("✅ Non-WES engines loaded successfully")
+    print("[OK] Non-WES engines loaded successfully")
 except Exception as e:
-    print(f"❌ Non-WES engines failed to load: {e}")
+    print(f"[ERROR] Non-WES engines failed to load: {e}")
     import traceback
     traceback.print_exc()
 
@@ -46,7 +46,7 @@ class ClinicalAIService:
         if _non_wes_available:
             self.report_detector   = ReportDetector()
             self.non_wes_extractor = NonWESExtractor()
-            print("✅ ReportDetector + NonWESExtractor initialized")
+            print("[OK] ReportDetector + NonWESExtractor initialized")
         else:
             self.report_detector   = None
             self.non_wes_extractor = None
