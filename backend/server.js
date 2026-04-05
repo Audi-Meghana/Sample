@@ -21,10 +21,15 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
-// Handle preflight requests explicitly
-app.options('/*', cors(corsOptions));
-
 app.use(express.json());
+
+// Handle preflight requests if they still arrive
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+  next();
+});
 
 app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/doctor-profile", require("./routes/doctorProfileRoutes"));
