@@ -1,23 +1,29 @@
 import os
-import whisper
 import tempfile
-import cv2
-import easyocr
 import re
-from moviepy import VideoFileClip
 from fastapi import UploadFile
 
 # ---------------------------------------------------
 # ENVIRONMENT SETUP
 # ---------------------------------------------------
 
-# os.environ["PATH"] += os.pathsep + r"C:\ffmpeg-8.0.1-essentials_build\ffmpeg-8.0.1-essentials_build\bin"
+IS_RENDER = os.getenv("RENDER", "false").lower() == "true"
 
-# Load Whisper model once
-model = whisper.load_model("base")
+# Load heavy libraries only when running locally
+if not IS_RENDER:
+    import whisper
+    import cv2
+    import easyocr
+    from moviepy import VideoFileClip
 
-# Load EasyOCR once
-reader = easyocr.Reader(['en'], gpu=False)
+    # Load Whisper model once (local only)
+    _whisper_model = whisper.load_model("base")
+
+    # Load EasyOCR once (local only)
+    _ocr_reader = easyocr.Reader(['en'], gpu=False)
+else:
+    from groq import Groq
+    _groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 
 # ===================================================
@@ -38,30 +44,19 @@ NUMBER_MAP = {
     "ten":  "10"
 }
 
-# ───────────────────────────────────────────────────
-# GENE NAME MAP — Whisper mishears gene names
-# Add any gene your doctors commonly dictate.
-# Key   = what Whisper transcribes (lowercase)
-# Value = correct HGNC gene symbol (uppercase)
-# ───────────────────────────────────────────────────
 GENE_NAME_MAP = {
-    # L1CAM variants
     "l1 cam":       "L1CAM",
     "l 1 cam":      "L1CAM",
     "l1cam":        "L1CAM",
     "l one cam":    "L1CAM",
     "el one cam":   "L1CAM",
     "l1 c a m":     "L1CAM",
-
-    # FGFR family
     "f g f r 3":    "FGFR3",
     "fgf r3":       "FGFR3",
     "fgf r 3":      "FGFR3",
     "f g f r 2":    "FGFR2",
     "fgf r2":       "FGFR2",
     "f g f r 1":    "FGFR1",
-
-    # COL family
     "col 1 a 1":    "COL1A1",
     "col 1 a 2":    "COL1A2",
     "col 2 a 1":    "COL2A1",
@@ -69,42 +64,28 @@ GENE_NAME_MAP = {
     "col 4 a 3":    "COL4A3",
     "col 12 a 1":   "COL12A1",
     "col twelve a one": "COL12A1",
-
-    # PKD family
     "p k d 1":      "PKD1",
     "pkd one":      "PKD1",
     "p k d 2":      "PKD2",
     "pkd two":      "PKD2",
     "p k h d 1":    "PKHD1",
-
-    # TSC family
     "t s c 1":      "TSC1",
     "tsc one":      "TSC1",
     "t s c 2":      "TSC2",
     "tsc two":      "TSC2",
-
-    # NF family
     "n f 1":        "NF1",
     "nf one":       "NF1",
     "n f 2":        "NF2",
     "nf two":       "NF2",
-
-    # BRCA family
     "b r c a 1":    "BRCA1",
     "brca one":     "BRCA1",
     "b r c a 2":    "BRCA2",
     "brca two":     "BRCA2",
-
-    # CFTR
     "c f t r":      "CFTR",
     "cystic fibrosis transmembrane": "CFTR",
-
-    # SMAD family
     "s m a d 4":    "SMAD4",
     "smad four":    "SMAD4",
     "s m a d 2":    "SMAD2",
-
-    # Common single genes
     "v h l":        "VHL",
     "a p c":        "APC",
     "r e t":        "RET",
@@ -130,15 +111,8 @@ GENE_NAME_MAP = {
 
 
 def fix_gene_names(text: str) -> str:
-    """
-    Replace Whisper's misheared gene names with correct HGNC symbols.
-    Case-insensitive match, whole-word aware.
-    Longer phrases are matched first to avoid partial replacements.
-    """
-    # Sort by length descending so longer patterns match first
     sorted_map = sorted(GENE_NAME_MAP.items(), key=lambda x: len(x[0]), reverse=True)
     for wrong, correct in sorted_map:
-        # Use word-boundary aware replacement (case-insensitive)
         pattern = r'(?<![A-Za-z0-9])' + re.escape(wrong) + r'(?![A-Za-z0-9])'
         text = re.sub(pattern, correct, text, flags=re.IGNORECASE)
     return text
@@ -151,7 +125,6 @@ def convert_spoken_numbers(text):
 
 
 def merge_spaced_letters(text):
-    # Join patterns like F G F R 3
     text = re.sub(
         r"\b(?:[A-Z]\s+){2,}[A-Z0-9]\b",
         lambda m: m.group(0).replace(" ", ""),
@@ -161,7 +134,6 @@ def merge_spaced_letters(text):
 
 
 def fix_or_to_r(text):
-    # Fix patterns like "FGF or 3" → "FGFR3"
     text = re.sub(
         r"\b([A-Z]{2,})\s+or\s+(\d)\b",
         r"\1R\2",
@@ -172,22 +144,18 @@ def fix_or_to_r(text):
 
 
 def fix_gene_phrase(text):
-    # Convert "G name" → "gene name"
     text = re.sub(r"\bG name\b", "gene name", text, flags=re.IGNORECASE)
-    # Convert "my G name" → "my gene name"
     text = re.sub(r"\bmy G\b", "my gene", text, flags=re.IGNORECASE)
     return text
 
 
 def fix_variant_format(text):
-    # Convert "C dot 1234A greater than G" → "c.1234A>G"
     text = re.sub(
         r"C dot (\d+)([A-Z]) greater than ([A-Z])",
         r"c.\1\2>\3",
         text,
         flags=re.IGNORECASE
     )
-    # Also handle: "C.1234 greater than G" → "c.1234>G"
     text = re.sub(
         r"\b[Cc]\.(\d+)([A-Za-z]?)\s+greater than\s+([A-Za-z])\b",
         lambda m: f"c.{m.group(1)}{m.group(2)}>{m.group(3).upper()}",
@@ -197,28 +165,50 @@ def fix_variant_format(text):
 
 
 def normalize_gene_text(text: str) -> str:
-    """
-    Full normalization pipeline for Whisper transcription output.
-    Order matters — gene name fix runs first and last to catch all cases.
-    """
-    text = fix_gene_phrase(text)        # "G name" → "gene name"
-    text = fix_gene_names(text)         # "L1 cam" → "L1CAM"  ← NEW
-    text = convert_spoken_numbers(text) # "one" → "1"
-    text = merge_spaced_letters(text)   # "F G F R 3" → "FGFR3"
-    text = fix_or_to_r(text)            # "FGF or 3" → "FGFR3"
-    text = fix_variant_format(text)     # "C dot 1234A greater than G" → "c.1234A>G"
-    text = fix_gene_names(text)         # run again — catches any newly merged tokens
+    text = fix_gene_phrase(text)
+    text = fix_gene_names(text)
+    text = convert_spoken_numbers(text)
+    text = merge_spaced_letters(text)
+    text = fix_or_to_r(text)
+    text = fix_variant_format(text)
+    text = fix_gene_names(text)
     return text
 
 
 # ===================================================
-# AUDIO → Whisper
+# TRANSCRIPTION — Groq (Render) or Whisper (Local)
+# ===================================================
+
+def _transcribe_audio_file(audio_path: str) -> str:
+    """
+    Transcribe audio file using:
+    - Groq Whisper API  → on Render (cloud, no RAM needed)
+    - Local Whisper     → on local machine
+    """
+    if IS_RENDER:
+        print("☁️ Using Groq Whisper API...")
+        with open(audio_path, "rb") as audio_file:
+            transcription = _groq_client.audio.transcriptions.create(
+                model="whisper-large-v3",
+                file=audio_file,
+                response_format="text"
+            )
+        # Groq returns a string directly when response_format="text"
+        return transcription.strip() if isinstance(transcription, str) else transcription.text.strip()
+    else:
+        print("🖥️ Using local Whisper model...")
+        result = _whisper_model.transcribe(audio_path)
+        return result["text"].strip()
+
+
+# ===================================================
+# AUDIO → Transcription
 # ===================================================
 
 def extract_audio_text(uploaded_file: UploadFile) -> str:
     """
     Accept a FastAPI UploadFile (audio).
-    Writes to a temp file → Whisper transcription → gene normalization.
+    Writes to a temp file → transcription → gene normalization.
     Returns clean transcribed text, or "" on failure.
     """
     extension = os.path.splitext(uploaded_file.filename)[1] or ".webm"
@@ -230,13 +220,10 @@ def extract_audio_text(uploaded_file: UploadFile) -> str:
     try:
         print("🎤 Transcribing:", temp_audio_path)
 
-        result   = model.transcribe(temp_audio_path)
-        raw_text = result["text"].strip()
-
-        print("🎤 Raw Result:", raw_text)
-
+        raw_text   = _transcribe_audio_file(temp_audio_path)
         clean_text = normalize_gene_text(raw_text)
 
+        print("🎤 Raw Result:", raw_text)
         print("🎤 Normalized Result:", clean_text)
 
         return clean_text
@@ -251,18 +238,13 @@ def extract_audio_text(uploaded_file: UploadFile) -> str:
 
 
 # ===================================================
-# VIDEO → Audio → Whisper  /  No audio → EasyOCR
+# VIDEO → Audio → Transcription / No audio → OCR
 # ===================================================
 
 def extract_video_text(file_bytes: bytes) -> str:
     """
-    Accepts raw bytes (caller does: contents = await file.read()).
-
-    Flow:
-      1. Save bytes to temp .mp4
-      2. If video has audio  → Whisper transcription
-      3. If no audio / empty → EasyOCR on sampled frames (every 30th frame)
-      4. Gene-normalize the result and return
+    On Render  → audio track extracted → Groq Whisper (no OCR fallback, no easyocr)
+    On Local   → audio track → local Whisper, no audio → EasyOCR on frames
     """
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
@@ -270,63 +252,67 @@ def extract_video_text(file_bytes: bytes) -> str:
         temp_video_path = tmp.name
 
     temp_audio_path = temp_video_path + ".mp3"
-
-    extracted_text = ""
-    seen_lines     = set()
+    extracted_text  = ""
 
     try:
         print("🎬 Opening video:", temp_video_path)
-        video = VideoFileClip(temp_video_path)
 
-        # ── STEP 1: Whisper from audio track ─────────────────────────────
-        if video.audio is not None:
-            print("🎬 Audio track found — extracting...")
-            video.audio.write_audiofile(temp_audio_path, logger=None)
+        if IS_RENDER:
+            # ── RENDER: Use ffmpeg directly to extract audio ──────────────
+            import subprocess
+            subprocess.run(
+                ["ffmpeg", "-i", temp_video_path, "-q:a", "0", "-map", "a", temp_audio_path, "-y"],
+                capture_output=True
+            )
 
-            result         = model.transcribe(temp_audio_path)
-            extracted_text = result["text"].strip()
+            if os.path.exists(temp_audio_path) and os.path.getsize(temp_audio_path) > 0:
+                print("🎬 Audio extracted — sending to Groq Whisper...")
+                extracted_text = _transcribe_audio_file(temp_audio_path)
+            else:
+                print("🎬 No audio track found in video — OCR not available on Render")
+                extracted_text = ""
 
-            print("🎬 Whisper result:", extracted_text)
         else:
-            print("🎬 No audio track found — will run OCR")
+            # ── LOCAL: Use moviepy + Whisper + EasyOCR fallback ──────────
+            video = VideoFileClip(temp_video_path)
 
-        video.close()
+            if video.audio is not None:
+                print("🎬 Audio track found — extracting...")
+                video.audio.write_audiofile(temp_audio_path, logger=None)
+                extracted_text = _transcribe_audio_file(temp_audio_path)
+                print("🎬 Whisper result:", extracted_text)
+            else:
+                print("🎬 No audio track — running EasyOCR on frames...")
 
-        # ── STEP 2: EasyOCR fallback (no audio OR Whisper returned empty) ─
-        if not extracted_text.strip():
-            print("🔍 Running OCR on video frames...")
+            video.close()
 
-            cap         = cv2.VideoCapture(temp_video_path)
-            frame_count = 0
+            # EasyOCR fallback (local only)
+            if not extracted_text.strip():
+                seen_lines  = set()
+                cap         = cv2.VideoCapture(temp_video_path)
+                frame_count = 0
 
-            while cap.isOpened():
-                ret, frame = cap.read()
-                if not ret:
-                    break
+                while cap.isOpened():
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
 
-                # Sample every 30th frame (~1 fps for 30fps video)
-                if frame_count % 30 == 0:
-                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                    gray = cv2.GaussianBlur(gray, (5, 5), 0)
-                    gray = cv2.resize(
-                        gray, None, fx=2, fy=2,
-                        interpolation=cv2.INTER_CUBIC
-                    )
+                    if frame_count % 30 == 0:
+                        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                        gray = cv2.GaussianBlur(gray, (5, 5), 0)
+                        gray = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
 
-                    results = reader.readtext(gray)
-
-                    for (bbox, text, prob) in results:
-                        clean_line = text.strip()
-                        # Use ". " separator so AI can parse sentences
-                        if prob > 0.6 and len(clean_line) > 2:
-                            if clean_line not in seen_lines:
+                        results = _ocr_reader.readtext(gray)
+                        for (bbox, text, prob) in results:
+                            clean_line = text.strip()
+                            if prob > 0.6 and len(clean_line) > 2 and clean_line not in seen_lines:
                                 seen_lines.add(clean_line)
                                 extracted_text += ". " + clean_line
 
-                frame_count += 1
+                    frame_count += 1
 
-            cap.release()
-            print(f"🔍 OCR done — {len(seen_lines)} unique lines from {frame_count} frames")
+                cap.release()
+                print(f"🔍 OCR done — {len(seen_lines)} unique lines from {frame_count} frames")
 
     except Exception as e:
         print("❌ Video processing error:", str(e))
@@ -341,11 +327,8 @@ def extract_video_text(file_bytes: bytes) -> str:
                 except Exception:
                     pass
 
-    # ── Final cleaning ────────────────────────────────────────────────────
     clean_text = extracted_text.replace("\n", " ")
     clean_text = " ".join(clean_text.split())
-
-    # Full gene normalization (works for both Whisper and OCR output)
     clean_text = normalize_gene_text(clean_text)
 
     print("🧹 Final extracted text:", clean_text[:300], "..." if len(clean_text) > 300 else "")
