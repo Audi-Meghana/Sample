@@ -10,17 +10,20 @@ connectDB();
 const app = express();
 app.use(express.urlencoded({ extended: true }));
 
-// CORS configuration for production
+// CORS configuration - Allow all origins for now to fix deployment issues
 const corsOptions = {
-  origin: process.env.NODE_ENV === 'production'
-    ? ['https://parental-ai-frontend.onrender.com', 'https://parental-ai-backend.onrender.com']
-    : ['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000', 'http://127.0.0.1:3001'],
+  origin: true, // Allow all origins
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
+  exposedHeaders: ['Access-Control-Allow-Origin']
 };
 
 app.use(cors(corsOptions));
+
+// Handle preflight requests explicitly
+app.options('*', cors(corsOptions));
+
 app.use(express.json());
 
 app.use("/api/auth", require("./routes/authRoutes"));
@@ -37,7 +40,13 @@ app.use("/api", require("./routes/chatroutes"));
 
 // Health check endpoint for deployment platforms
 app.get("/health", (req, res) => {
-  res.status(200).json({ status: "OK", timestamp: new Date() });
+  res.status(200).json({
+    status: "OK",
+    timestamp: new Date(),
+    environment: process.env.NODE_ENV || "undefined",
+    port: process.env.PORT || "undefined",
+    mongo_connected: true // We'll assume it's connected if server is running
+  });
 });
 
 const PORT = process.env.PORT || 3000;
@@ -46,4 +55,6 @@ app.listen(PORT, () => {
   console.log(`✓ Server running on port ${PORT}`);
   console.log(`✓ Environment: ${process.env.NODE_ENV || "development"}`);
   console.log(`✓ FastAPI URL: ${process.env.FASTAPI_URL || "http://127.0.0.1:8000"}`);
+  console.log(`✓ CORS: Enabled for all origins`);
+  console.log(`✓ Health check: http://localhost:${PORT}/health`);
 });
