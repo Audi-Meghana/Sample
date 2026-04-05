@@ -24,6 +24,15 @@ app.use("/uploads", express.static("uploads"));
 app.use("/api/history", require("./routes/historyRoutes"));
 app.use("/api", require("./routes/chatroutes"));
 
-app.listen(process.env.PORT, () =>
-  console.log(`Server running on port ${process.env.PORT}`)
-);
+// Health check endpoint for deployment platforms
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "OK", timestamp: new Date() });
+});
+
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log(`✓ Server running on port ${PORT}`);
+  console.log(`✓ Environment: ${process.env.NODE_ENV || "development"}`);
+  console.log(`✓ FastAPI URL: ${process.env.FASTAPI_URL || "http://127.0.0.1:8000"}`);
+});

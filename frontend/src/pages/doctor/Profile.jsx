@@ -245,7 +245,7 @@ export default function Profile() {
         consultFee:    d.consultFee    ?? "",
       });
       if (d.profileImage)
-        setPreviewImage(`http://localhost:5000/uploads/${d.profileImage}`);
+        setPreviewImage(`http://localhost:3000/uploads/${d.profileImage}`);
     } catch(err) { console.error("FETCH PROFILE ERROR:", err); }
   };
 
@@ -296,7 +296,7 @@ export default function Profile() {
         consultFee:    saved.consultFee    ?? f.consultFee,
       }));
       if (saved.profileImage)
-        setPreviewImage(`http://localhost:5000/uploads/${saved.profileImage}`);
+        setPreviewImage(`http://localhost:3000/uploads/${saved.profileImage}`);
 
       setProfileImage(null); setIsEditing(false);
       setToast(true); setTimeout(() => setToast(false), 3000);

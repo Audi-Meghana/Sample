@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:6
+    container_name: aignoz_mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-change_me}
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - aignoz_network
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aignoz_backend
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      MONGO_URI: mongodb://admin:${MONGO_PASSWORD:-change_me}@mongodb:27017/aignoz?authSource=admin
+      FASTAPI_URL: http://127.0.0.1:8000
+      JWT_SECRET: ${JWT_SECRET:-your_jwt_secret_here}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+    ports:
+      - "3000:3000"
+      - "8000:8000"
+    depends_on:
+      - mongodb
+    networks:
+      - aignoz_network
+    restart: unless-stopped
+    volumes:
+      - ./backend/uploads:/app/backend/uploads
+
+volumes:
+  mongo_data:
+
+networks:
+  aignoz_network:
+    driver: bridge

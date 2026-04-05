@@ -2,7 +2,8 @@ const axios    = require("axios");
 const FormData = require("form-data");
 const fs       = require("fs");
 
-const FASTAPI_URL = "http://127.0.0.1:8000";
+// Use environment variable for FastAPI URL, default to localhost for development
+const FASTAPI_URL = process.env.FASTAPI_URL || "http://127.0.0.1:8000";
 
 // ─────────────────────────────────────────────────────────────
 // HELPER — surface the real FastAPI error message upstream

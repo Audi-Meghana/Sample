@@ -815,7 +815,7 @@ export default function GeneAnalysis() {
     (async () => {
       try {
         const token = localStorage.getItem("token");
-        const res = await axios.get("http://localhost:5000/api/cases", {
+        const res = await axios.get("http://localhost:3000/api/cases", {
           headers: { Authorization: `Bearer ${token}` }
         });
         setCases(res.data.cases || []);
