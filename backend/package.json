@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
-    "start": "bash ./start-server.sh",
+    "start": "node ./start-server.js",
     "dev": "nodemon server.js"
   },
   "keywords": [],
