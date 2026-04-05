@@ -11,6 +11,7 @@ pdfplumber
 pdfminer.six
 pytesseract
 pillow
+pdf2image        # ← ADD THIS BACK
 
 # AI / NLP
 scikit-learn
