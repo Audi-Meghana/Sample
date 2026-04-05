@@ -1,7 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from pydantic import BaseModel, Field
 from typing import Dict, Any
-from app.engines.clinical_ai_core import ClinicalAICore
 from utils.pdf_extractor import extract_text
 from utils.audio_extractor import extract_audio_text, extract_video_text
 from utils.image_extractor import extract_text_from_image
