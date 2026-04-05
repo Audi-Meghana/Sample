@@ -368,7 +368,7 @@ async def extract_document(
         if not file_bytes:
             raise HTTPException(status_code=400, detail="File is empty.")
 
-        text = extract_text_from_document(file_bytes, file.filename)
+        text = extract_text_from_document(file_bytes, file.filename) # type: ignore
 
         if not text or len(text.strip()) < 20:
             raise HTTPException(
@@ -466,7 +466,7 @@ async def extract_spreadsheet(
         if not file_bytes:
             raise HTTPException(status_code=400, detail="File is empty.")
 
-        text = extract_text_from_document(file_bytes, file.filename)
+        text = extract_text_from_document(file_bytes, file.filename) # type: ignore
 
         if not text or len(text.strip()) < 20:
             raise HTTPException(status_code=400, detail="Spreadsheet is empty or unreadable.")
