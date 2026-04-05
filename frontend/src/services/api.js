@@ -1,6 +1,7 @@
 import axios from "axios";
 
 const API = axios.create({
+  // eslint-disable-next-line no-undef
   baseURL: import.meta.env.VITE_API_BASE_URL || (process.env.NODE_ENV === 'production'
     ? "https://parental-ai-backend.onrender.com/api"
     : "http://localhost:3000/api")

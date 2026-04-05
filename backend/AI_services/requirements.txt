@@ -3,29 +3,25 @@ uvicorn
 pandas
 python-multipart
 joblib
+python-dotenv
 
 # PDF
 pymupdf
 pdfplumber
-pdf2image
+pdfminer.six
 pytesseract
 pillow
 
 # AI / NLP
-sentence-transformers
 scikit-learn
 numpy
-torch
 groq
-
-# Audio / Video
-openai-whisper
-ffmpeg-python
-moviepy
-easyocr
-opencv-python
 
 # Document Processing
 python-docx
 openpyxl
 striprtf
+
+# HTTP
+httpx
+requests
